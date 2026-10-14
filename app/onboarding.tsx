@@ -238,43 +238,56 @@ function OnboardingScreen() {
   const logoPulse = useRef(new Animated.Value(1)).current;
   const logoGlow = useRef(new Animated.Value(0.5)).current;
   const logoFloat = useRef(new Animated.Value(0)).current;
+  const taglineShimmer = useRef(new Animated.Value(-1)).current;
+  const sparkleTwinkle = useRef(new Animated.Value(0.35)).current;
 
   useEffect(() => {
     titleOpacity.setValue(0);
-    titleTranslateY.setValue(20);
+    titleTranslateY.setValue(12);
     Animated.parallel([
-      Animated.timing(titleOpacity, { toValue: 1, duration: 600, delay: 200, useNativeDriver }),
-      Animated.timing(titleTranslateY, { toValue: 0, duration: 600, delay: 200, easing: Easing.out(Easing.back(1.5)), useNativeDriver }),
+      Animated.timing(titleOpacity, { toValue: 1, duration: 700, delay: 200, useNativeDriver }),
+      Animated.timing(titleTranslateY, { toValue: 0, duration: 700, delay: 200, easing: Easing.out(Easing.cubic), useNativeDriver }),
     ]).start();
 
     const pulseLoop = Animated.loop(
       Animated.sequence([
         Animated.parallel([
-          Animated.timing(logoPulse, { toValue: 1.14, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver }),
-          Animated.timing(logoGlow, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+          Animated.timing(logoPulse, { toValue: 1.08, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+          Animated.timing(logoGlow, { toValue: 0.9, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver }),
         ]),
         Animated.parallel([
-          Animated.timing(logoPulse, { toValue: 0.97, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver }),
-          Animated.timing(logoGlow, { toValue: 0.38, duration: 1100, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+          Animated.timing(logoPulse, { toValue: 0.98, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+          Animated.timing(logoGlow, { toValue: 0.5, duration: 1400, easing: Easing.inOut(Easing.ease), useNativeDriver }),
         ]),
         Animated.parallel([
-          Animated.timing(logoPulse, { toValue: 1, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver }),
-          Animated.timing(logoGlow, { toValue: 0.82, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+          Animated.timing(logoPulse, { toValue: 1.02, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+          Animated.timing(logoGlow, { toValue: 0.72, duration: 1200, easing: Easing.inOut(Easing.ease), useNativeDriver }),
         ]),
       ]),
     );
 
     const floatLoop = Animated.loop(
       Animated.sequence([
-        Animated.timing(logoFloat, { toValue: -10, duration: 1700, easing: Easing.inOut(Easing.sin), useNativeDriver }),
-        Animated.timing(logoFloat, { toValue: 10, duration: 1700, easing: Easing.inOut(Easing.sin), useNativeDriver }),
+        Animated.timing(logoFloat, { toValue: -6, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver }),
+        Animated.timing(logoFloat, { toValue: 6, duration: 2200, easing: Easing.inOut(Easing.sin), useNativeDriver }),
       ]),
     );
 
     pulseLoop.start();
     floatLoop.start();
-    return () => { pulseLoop.stop(); floatLoop.stop(); };
-  }, [activeIndex, logoGlow, logoPulse, logoFloat]);
+    const shimmerLoop = Animated.loop(Animated.sequence([
+      Animated.timing(taglineShimmer, { toValue: 1, duration: 1800, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+      Animated.delay(700),
+      Animated.timing(taglineShimmer, { toValue: -1, duration: 0, useNativeDriver }),
+    ]));
+    const sparkleLoop = Animated.loop(Animated.sequence([
+      Animated.timing(sparkleTwinkle, { toValue: 1, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+      Animated.timing(sparkleTwinkle, { toValue: 0.3, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver }),
+    ]));
+    shimmerLoop.start();
+    sparkleLoop.start();
+    return () => { pulseLoop.stop(); floatLoop.stop(); shimmerLoop.stop(); sparkleLoop.stop(); };
+  }, [activeIndex, logoGlow, logoPulse, logoFloat, taglineShimmer, sparkleTwinkle]);
 
   const onViewableItemsChanged = useCallback(({ viewableItems }: { viewableItems: ViewToken[] }) => {
     if (viewableItems.length > 0 && viewableItems[0].index != null) {
@@ -296,13 +309,9 @@ function OnboardingScreen() {
   }, [activeIndex, isOnboarded, setOnboarded]);
 
   const handleSkip = useCallback(() => {
-    if (isOnboarded) {
-      router.back();
-    } else {
-      setOnboarded(true);
-      router.replace('/(auth)/login' as any);
-    }
-  }, [setOnboarded, isOnboarded]);
+    setOnboarded(true);
+    router.replace('/(auth)/login' as any);
+  }, [setOnboarded]);
 
   const activeTheme = SLIDE_THEMES[activeIndex % SLIDE_THEMES.length];
   const activeSlide = ONBOARDING_SLIDES[activeIndex];
@@ -317,7 +326,7 @@ function OnboardingScreen() {
         <Animated.View
           style={[
             styles.slideContent,
-            { opacity: titleOpacity, transform: [{ translateY: titleTranslateY }] },
+            { opacity: titleOpacity, transform: [{ translateY: -28 }, { translateY: titleTranslateY }] },
           ]}
         >
           {/* Glowing icon */}
@@ -345,32 +354,27 @@ function OnboardingScreen() {
                 styles.logoFrame,
                 {
                   width: Math.min(width * 0.72, 300),
-                  height: Math.min(height * 0.28, 230),
+                  height: Math.min(height * 0.30, 240),
                   transform: [{ translateY: logoFloat }, { scale: logoPulse }],
                 },
               ]}
             >
               <View style={styles.logoGlass}>
-                <Image
-                  source={LOGO_SPLASH}
-                  style={{ width: Math.min(width * 0.58, 250), height: Math.min(height * 0.22, 200), opacity: 1 }}
-                  resizeMode="contain"
-                />
+                <View style={styles.logoImageClip}>
+                  <Image
+                    source={LOGO_SPLASH}
+                    style={{ width: Math.min(width * 0.52, 250), height: Math.min(height * 0.28, 220), opacity: 1 }}
+                    resizeMode="contain"
+                  />
+                </View>
               </View>
             </Animated.View>
-            <Text
-              style={[
-                styles.brandText,
-                {
-                  fontSize: Math.min(width * 0.088, 36),
-                  marginTop: Math.max(height * 0.008, 2),
-                  letterSpacing: Math.min(width * 0.0075, 2.8),
-                },
-              ]}
-            >
-              NASUHA
-            </Text>
-            <Text style={[styles.brandTagline, { marginTop: 3, fontSize: Math.min(width * 0.024, 10.5) }]}>Bersahabat di Dunia Bertetangga di Surga</Text>
+            <View style={styles.taglineWrap}>
+              <Animated.View style={[styles.taglineShine, { transform: [{ translateX: taglineShimmer.interpolate({ inputRange: [-1, 1], outputRange: [-150, 150] }) }] }]} />
+              <Animated.View style={[styles.taglineSparkleLeft, { opacity: sparkleTwinkle }]}><Ionicons name="sparkles" size={11} color="#C9972B" /></Animated.View>
+              <Text style={[styles.brandText, { fontSize: 12, lineHeight: 16, marginTop: 6, letterSpacing: 0.12 }]}>Bersahabat di Dunia, Bertetangga di Surga</Text>
+              <Animated.View style={[styles.taglineSparkleRight, { opacity: sparkleTwinkle.interpolate({ inputRange: [0.3, 1], outputRange: [1, 0.35] }) }]}><Ionicons name="sparkles" size={9} color="#C9972B" /></Animated.View>
+            </View>
           </View>
 
           <Text style={styles.slideTitle}>{item.title}</Text>
@@ -393,7 +397,7 @@ function OnboardingScreen() {
       {/* Skip button */}
       <Pressable onPress={handleSkip} style={styles.skipBtn}>
         <View style={styles.skipPill}>
-          <Text style={styles.skipText}>{isOnboarded ? 'Kembali' : 'Lewati'}</Text>
+          <Text style={styles.skipText}>Lewati</Text>
         </View>
       </Pressable>
 
@@ -440,15 +444,22 @@ function OnboardingScreen() {
         {/* Next / Get Started button */}
         <Pressable onPress={handleNext} style={({ pressed }) => [{ opacity: pressed ? 0.85 : 1 }]}>
           <LinearGradient
-            colors={[activeTheme.accent, activeTheme.orbs[1]]}
-            style={styles.nextBtn}
+            colors={['#FF4D6D', '#FFD166', '#06D6A0', '#118AB2', '#8338EC', '#FF4D6D']}
+            style={styles.nextBtnBorder}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 0 }}
           >
-            <Text style={styles.nextText}>
-              {activeIndex === ONBOARDING_SLIDES.length - 1 ? (isOnboarded ? 'Kembali ke Login' : 'Mulai Sekarang') : 'Selanjutnya'}
-            </Text>
-            <Ionicons name={activeIndex === ONBOARDING_SLIDES.length - 1 ? 'checkmark-circle' : 'arrow-forward'} size={20} color="#FFF" />
+            <LinearGradient
+              colors={[activeTheme.accent, activeTheme.orbs[1]]}
+              style={styles.nextBtn}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Text style={styles.nextText}>
+                {activeIndex === ONBOARDING_SLIDES.length - 1 ? (isOnboarded ? 'Kembali ke Login' : 'Mulai Sekarang') : 'Selanjutnya'}
+              </Text>
+              <Ionicons name={activeIndex === ONBOARDING_SLIDES.length - 1 ? 'checkmark-circle' : 'arrow-forward'} size={20} color="#111827" />
+            </LinearGradient>
           </LinearGradient>
         </Pressable>
 
@@ -475,18 +486,18 @@ const styles = StyleSheet.create({
   iconGlow: { width: 96, height: 96, borderRadius: 48, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 0px 10px rgba(157,216,255,0.16)', elevation: 5 },
   iconGlowInner: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.04)' },
 
-  logoBlock: { alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.md, width: '100%', overflow: 'visible' },
+  logoBlock: { alignItems: 'center', justifyContent: 'center', marginBottom: Spacing.sm, width: '100%', overflow: 'visible' },
   logoHalo: {
     position: 'absolute',
-    width: 320,
-    height: 320,
-    borderRadius: 160,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
     shadowColor: '#CFEFD9',
-    shadowOpacity: 0.22,
-    shadowRadius: 34,
+    shadowOpacity: 0.16,
+    shadowRadius: 26,
     shadowOffset: { width: 0, height: 0 },
-    elevation: 8,
-    backgroundColor: 'rgba(207, 239, 217, 0.14)',
+    elevation: 6,
+    backgroundColor: 'rgba(207, 239, 217, 0.12)',
   },
   logoFrame: {
     width: 300,
@@ -497,10 +508,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     overflow: 'visible',
     shadowColor: '#CFEFD9',
-    shadowOpacity: 0.18,
-    shadowRadius: 18,
+    shadowOpacity: 0.14,
+    shadowRadius: 16,
     shadowOffset: { width: 0, height: 8 },
-    elevation: 6,
+    elevation: 5,
   },
   logoGlass: {
     width: '100%',
@@ -512,30 +523,31 @@ const styles = StyleSheet.create({
     borderWidth: 0,
     overflow: 'visible',
   },
+  logoImageClip: {
+    width: 250,
+    height: 220,
+    alignItems: 'center',
+    overflow: 'visible',
+  },
   logo: { width: 220, height: 180, resizeMode: 'contain' },
   brandText: {
     marginTop: 2,
-    fontSize: 34,
-    fontWeight: 900,
-    letterSpacing: 2.8,
-    color: '#E5B949',
-    textTransform: 'uppercase',
-    textShadowColor: 'rgba(230, 185, 73, 0.7)',
-    textShadowOffset: { width: 0, height: 0 },
-    textShadowRadius: 14,
-  },
-  brandTagline: {
-    marginTop: 3,
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 0.45,
+    letterSpacing: 0.12,
     color: '#234B66',
     textAlign: 'center',
-    maxWidth: 300,
-    opacity: 0.95,
+    maxWidth: 280,
+    textShadowColor: 'transparent',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 0,
   },
-  slideTitle: { fontSize: 34, fontWeight: '900', textAlign: 'center', color: '#12395B', letterSpacing: 0.5, marginTop: Spacing.sm },
-  subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: Spacing.sm },
+  taglineWrap: { position: 'relative', alignItems: 'center', overflow: 'hidden', minWidth: 300, minHeight: 28 },
+  taglineShine: { position: 'absolute', top: 6, bottom: 6, width: 40, backgroundColor: 'rgba(255,255,255,0.6)', transform: [{ skewX: '-18deg' }] },
+  taglineSparkleLeft: { position: 'absolute', left: 2, top: 8, zIndex: 2 },
+  taglineSparkleRight: { position: 'absolute', right: 2, bottom: 4, zIndex: 2 },
+  slideTitle: { fontSize: 32, fontWeight: '900', textAlign: 'center', color: '#12395B', letterSpacing: 0.4, marginTop: Spacing.xs },
+  subtitleRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: Spacing.xs },
   subtitleLine: { width: 24, height: 2, borderRadius: 1, opacity: 0.8 },
   slideSub: { fontSize: FontSize.lg, fontWeight: '700', textAlign: 'center', color: '#1D4B74' },
   slideDesc: { fontSize: FontSize.md, textAlign: 'center', lineHeight: 24, marginTop: Spacing.md, color: '#234D68', maxWidth: 320 },
@@ -544,8 +556,9 @@ const styles = StyleSheet.create({
   bottomOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingBottom: 20, zIndex: 10 },
   dotsRow: { flexDirection: 'row', justifyContent: 'center', gap: 8, marginBottom: Spacing.lg },
   dot: { height: 8, borderRadius: 4 },
-  nextBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginHorizontal: Spacing.xl, paddingVertical: 16, borderRadius: BorderRadius.xl, gap: Spacing.sm },
-  nextText: { color: '#FFF', fontSize: FontSize.lg, fontWeight: '700' },
+  nextBtnBorder: { marginHorizontal: Spacing.xl, padding: 2, borderRadius: BorderRadius.xl, boxShadow: '0px 4px 14px rgba(17,24,39,0.28)', elevation: 8 },
+  nextBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 16, borderRadius: BorderRadius.xl - 2, gap: Spacing.sm },
+  nextText: { color: '#111827', fontSize: FontSize.lg, fontWeight: '800' },
   bottomShimmer: { height: 3, marginTop: Spacing.lg },
 
   // Background effects

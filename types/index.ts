@@ -3,6 +3,7 @@ export interface User {
   email: string;
   name: string;
   googleId?: string;
+  backendToken?: string;
   authProvider?: 'password' | 'google';
   phone?: string;
   avatar?: string;
@@ -100,6 +101,10 @@ export interface NotificationSettings {
   dzikirReminderEnabled: boolean;
   shalawatReminderEnabled: boolean;
   spiritualReminderEnabled: boolean;
+  debtReminderEnabled: boolean;
+  taubatReminderEnabled: boolean;
+  dhuhaReminderEnabled: boolean;
+  tahajudCallEnabled: boolean;
   riyadhohHour: number;
   riyadhohMinute: number;
 }

@@ -149,11 +149,11 @@ export const LAPAK_PRODUCTS = [
 ];
 
 export const RIYADHOH_ITEMS = [
-  { id: 'shalat-subuh', name: 'Shalat Subuh', category: 'Shalat Wajib', icon: 'sunny-outline' as const },
-  { id: 'shalat-dzuhur', name: 'Shalat Dzuhur', category: 'Shalat Wajib', icon: 'sunny-outline' as const },
-  { id: 'shalat-ashar', name: 'Shalat Ashar', category: 'Shalat Wajib', icon: 'sunny-outline' as const },
-  { id: 'shalat-maghrib', name: 'Shalat Maghrib', category: 'Shalat Wajib', icon: 'moon-outline' as const },
-  { id: 'shalat-isya', name: 'Shalat Isya', category: 'Shalat Wajib', icon: 'moon-outline' as const },
+  { id: 'shalat-subuh', name: 'Shalat Subuh', category: "Shalat Wajib Berjama'ah", icon: 'sunny-outline' as const },
+  { id: 'shalat-dzuhur', name: 'Shalat Dzuhur', category: "Shalat Wajib Berjama'ah", icon: 'sunny-outline' as const },
+  { id: 'shalat-ashar', name: 'Shalat Ashar', category: "Shalat Wajib Berjama'ah", icon: 'sunny-outline' as const },
+  { id: 'shalat-maghrib', name: 'Shalat Maghrib', category: "Shalat Wajib Berjama'ah", icon: 'moon-outline' as const },
+  { id: 'shalat-isya', name: 'Shalat Isya', category: "Shalat Wajib Berjama'ah", icon: 'moon-outline' as const },
   { id: 'shalat-tahajud', name: 'Shalat Tahajud', category: 'Shalat Sunnah', icon: 'star-outline' as const },
   { id: 'shalat-dhuha', name: 'Shalat Dhuha', category: 'Shalat Sunnah', icon: 'star-outline' as const },
   { id: 'shalat-taubat', name: 'Shalat Taubat', category: 'Shalat Sunnah', icon: 'refresh-circle-outline' as const },
@@ -1422,8 +1422,8 @@ export const ONBOARDING_SLIDES = [
   {
     id: 1,
     title: 'Assalamu\'alaikum',
-    subtitle: 'Selamat Datang di NASJAK',
-    description: 'Aplikasi resmi komunitas NASUHA Jakarta. Hijrah Bersama, Tumbuh Bersama, Bebas Utang Bersama.',
+    subtitle: 'Selamat datang Sahabat Surga',
+    description: 'Aplikasi resmi komunitas NASUHA. Hijrah Bersama, Tumbuh Bersama, Bebas Utang Bersama.',
     icon: 'heart' as const,
   },
   {

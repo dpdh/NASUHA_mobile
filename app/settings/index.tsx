@@ -3,6 +3,7 @@ import { router } from 'expo-router';
 import React, { memo, useState } from 'react';
 import {
     Modal,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -102,12 +103,10 @@ function SettingsScreen() {
   const syncNotifications = async (updates: Parameters<typeof updateNotificationSettings>[0]) => {
     const nextSettings = { ...notificationSettings, ...updates };
     updateNotificationSettings(updates);
-    if (!nextSettings.adhanEnabled && !nextSettings.motivationalEnabled && !nextSettings.riyadhohEnabled && !nextSettings.istighfarHourlyEnabled && !nextSettings.dzikirReminderEnabled && !nextSettings.spiritualReminderEnabled) return;
     try {
       const times = prayerLocation
         ? await fetchPrayerTimes(prayerLocation)
         : ({ Fajr: '', Dhuhr: '', Asr: '', Maghrib: '', Isha: '' } as PrayerTimes);
-      await requestNotificationPermission();
       await rescheduleNotifications(times, nextSettings);
     } catch {
       // The prayer screen will retry scheduling after location or network recovery.
@@ -202,8 +201,8 @@ function SettingsScreen() {
     {
       id: 'motivational-reminder',
       icon: 'bulb-outline',
-      label: 'Motivasi Harian',
-      description: notificationSettings.motivationalEnabled ? 'Aktif • setiap hari pukul 07.00' : 'Nonaktif',
+      label: 'Motivasi Setiap Jam',
+      description: notificationSettings.motivationalEnabled ? 'Aktif • pengingat setiap 1 jam' : 'Nonaktif',
       type: 'toggle',
       value: notificationSettings.motivationalEnabled,
       onChange: (value) => syncNotifications({ motivationalEnabled: value }),
@@ -259,6 +258,46 @@ function SettingsScreen() {
       onChange: (value) => syncNotifications({ spiritualReminderEnabled: value }),
       color: colors.primary,
     },
+    {
+      id: 'debt-reminder',
+      icon: 'wallet-outline',
+      label: 'Ingat Bayar Utang',
+      description: notificationSettings.debtReminderEnabled ? 'Aktif • setiap pagi' : 'Nonaktif',
+      type: 'toggle',
+      value: notificationSettings.debtReminderEnabled,
+      onChange: (value) => syncNotifications({ debtReminderEnabled: value }),
+      color: colors.gold,
+    },
+    {
+      id: 'taubat-reminder',
+      icon: 'heart-outline',
+      label: 'Shalat Taubat 3 Kali Sehari',
+      description: notificationSettings.taubatReminderEnabled ? 'Aktif • pagi, siang, malam' : 'Nonaktif',
+      type: 'toggle',
+      value: notificationSettings.taubatReminderEnabled,
+      onChange: (value) => syncNotifications({ taubatReminderEnabled: value }),
+      color: colors.primary,
+    },
+    {
+      id: 'dhuha-reminder',
+      icon: 'sunny-outline',
+      label: 'Pengingat Shalat Dhuha',
+      description: notificationSettings.dhuhaReminderEnabled ? 'Aktif • pukul 07.00 - 11.30' : 'Nonaktif',
+      type: 'toggle',
+      value: notificationSettings.dhuhaReminderEnabled,
+      onChange: (value) => syncNotifications({ dhuhaReminderEnabled: value }),
+      color: colors.gold,
+    },
+    {
+      id: 'tahajud-call',
+      icon: 'moon-outline',
+      label: 'Tahajud Call & Alarm',
+      description: notificationSettings.tahajudCallEnabled ? 'Aktif • setiap pukul 02.30' : 'Nonaktif',
+      type: 'toggle',
+      value: notificationSettings.tahajudCallEnabled,
+      onChange: (value) => syncNotifications({ tahajudCallEnabled: value }),
+      color: colors.primary,
+    },
   ];
 
   const aboutSettings: SettingItem[] = [
@@ -285,7 +324,7 @@ function SettingsScreen() {
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
       <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => router.back()} hitSlop={16} style={styles.backButton} accessibilityRole="button" accessibilityLabel="Kembali">
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Pengaturan</Text>
@@ -459,10 +498,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
+    paddingTop: Platform.OS === 'ios' ? 44 : 20,
     paddingBottom: Spacing.md,
     borderBottomWidth: 1,
   },
+  backButton: { width: 48, height: 48, alignItems: 'center', justifyContent: 'center', zIndex: 2, elevation: 2 },
   headerTitle: { fontSize: FontSize.xl, fontWeight: '700' },
 
   content: { flex: 1, paddingTop: Spacing.md, paddingHorizontal: Spacing.lg },

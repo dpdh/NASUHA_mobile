@@ -7,6 +7,7 @@ export interface ProviderUserProfile {
   email: string;
   name: string;
   avatar?: string;
+  backendToken?: string;
   membershipType: UserMembershipType;
   membershipFeatures?: Record<string, boolean>;
 }
@@ -54,6 +55,7 @@ export async function syncGoogleProfile(
       email: String(data.email).trim().toLowerCase(),
       name: String(data.name || googleProfile.name),
       avatar: data.avatar || googleProfile.avatar,
+      backendToken: typeof payload.token === 'string' ? payload.token : undefined,
       membershipType: normalizeMembershipType(data.membershipType),
       membershipFeatures: data.membershipFeatures,
     };

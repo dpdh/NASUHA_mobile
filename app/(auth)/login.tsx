@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import {
     Alert,
     Image,
@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
-import { fetchGoogleUserInfo, isGoogleConfigured, useGoogleAuth } from '../../services/googleAuth';
+import { fetchGoogleUserInfo, getGoogleAccessToken, getGoogleAuthError, getGoogleSetupHint, isGoogleConfigured, useGoogleAuth } from '../../services/googleAuth';
 import { syncGoogleProfile } from '../../services/userProvider';
 import { useAppStore } from '../../store/appStore';
 
@@ -34,23 +34,14 @@ function LoginScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const handledGoogleSuccessRef = useRef(false);
 
   const { request, response, promptAsync, isConfigured } = useGoogleAuth();
   const googleConfigured = isGoogleConfigured();
 
-  // Handle Google Auth response
-  useEffect(() => {
-    if (response?.type === 'success' && response.authentication?.accessToken) {
-      handleGoogleSuccess(response.authentication.accessToken);
-    } else if (response?.type === 'error') {
-      setGoogleLoading(false);
-      Alert.alert('Error', 'Login Google gagal. Silakan coba lagi.');
-    } else if (response?.type === 'dismiss') {
-      setGoogleLoading(false);
-    }
-  }, [response]);
-
   const handleGoogleSuccess = useCallback(async (accessToken: string) => {
+    if (handledGoogleSuccessRef.current) return;
+    handledGoogleSuccessRef.current = true;
     setGoogleLoading(true);
     try {
       const userInfo = await fetchGoogleUserInfo(accessToken);
@@ -66,6 +57,7 @@ function LoginScreen() {
         email: userInfo.email,
         name: userInfo.name || userInfo.email.split('@')[0],
         avatar: userInfo.picture,
+        backendToken: providerProfile?.backendToken,
         membershipType: providerProfile?.membershipType,
         membershipFeatures: providerProfile?.membershipFeatures,
       });
@@ -76,7 +68,7 @@ function LoginScreen() {
       }
 
       setOnboarded(true);
-      router.replace('/(tabs)/' as any);
+      router.replace('/(tabs)' as any);
     } catch {
       Alert.alert('Error', 'Terjadi kesalahan saat login Google');
     } finally {
@@ -84,31 +76,57 @@ function LoginScreen() {
     }
   }, [loginWithGoogle, setOnboarded]);
 
+  useEffect(() => {
+    const accessToken = getGoogleAccessToken(response);
+    if (response?.type === 'success' && accessToken) {
+      if (!handledGoogleSuccessRef.current) {
+        handleGoogleSuccess(accessToken);
+      }
+      return;
+    }
+
+    if (response?.type === 'error') {
+      handledGoogleSuccessRef.current = false;
+      setGoogleLoading(false);
+      Alert.alert('Login Google gagal', getGoogleAuthError(response));
+      return;
+    }
+
+    if (response?.type === 'cancel' || response?.type === 'dismiss') {
+      handledGoogleSuccessRef.current = false;
+      setGoogleLoading(false);
+    }
+  }, [handleGoogleSuccess, response]);
+
   const handleGoogleLogin = useCallback(async () => {
     if (!googleConfigured || !request) {
       Alert.alert(
         'Google Sign-In Belum Aktif',
-        'Untuk mengaktifkan login Google:\n\n' +
-        '1. Buka Google Cloud Console\n' +
-        '2. Buat OAuth Client ID\n' +
-        '3. Isi Client ID di services/googleAuth.ts\n\n' +
-        'Lihat panduan lengkap di file services/googleAuth.ts',
+        `${getGoogleSetupHint()}\n\n` +
+        'Pastikan juga:\n' +
+        '1. OAuth Client ID sudah dibuat di Google Cloud Console\n' +
+        '2. Package/bundle ID dan SHA-1 sudah sesuai\n' +
+        '3. Client ID platform sudah diisi di file .env',
         [{ text: 'OK' }]
       );
       return;
     }
+    handledGoogleSuccessRef.current = false;
     setGoogleLoading(true);
     try {
-      await promptAsync();
+      await promptAsync({
+        showInRecents: true,
+      });
     } catch {
+      handledGoogleSuccessRef.current = false;
       setGoogleLoading(false);
-      Alert.alert('Error', 'Tidak dapat membuka halaman login Google');
+      Alert.alert('Login Google gagal', 'Tidak dapat membuka halaman login Google. Pastikan Chrome/Safari tersedia dan coba lagi.');
     }
   }, [promptAsync, googleConfigured, request]);
 
   const handleLogin = useCallback(async () => {
     if (!identifier.trim() || !password) {
-      Alert.alert('Error', 'Email/no. HP dan password harus diisi');
+      Alert.alert('Error', 'Email dan password harus diisi');
       return;
     }
 
@@ -125,7 +143,7 @@ function LoginScreen() {
         Alert.alert('Selamat Datang Admin!', `Login sebagai ${user.email}\nRole: ${user.role === 'super_admin' ? 'Super Admin' : 'Admin'} NASUHA`);
       }
       setOnboarded(true);
-      router.replace('/(tabs)/' as any);
+      router.replace('/(tabs)' as any);
     } catch {
       Alert.alert('Error', 'Terjadi kesalahan saat login. Silakan coba lagi.');
     } finally {
@@ -147,7 +165,7 @@ function LoginScreen() {
           <View style={styles.logoSection}>
             <Image source={LOGO_SPLASH} style={styles.logo} resizeMode="contain" />
             <Text style={[styles.appName, { color: colors.primary }]}>NASUHA App</Text>
-            <Text style={[styles.tagline, { color: colors.gold }]}>Hijrah Bersama, Tumbuh Bersama</Text>
+            <Text style={[styles.tagline, { color: colors.gold }]}>Bersahabat di Dunia, Bertetangga di Surga</Text>
           </View>
 
           {/* Login Card */}
@@ -183,18 +201,18 @@ function LoginScreen() {
               <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
             </View>
 
-            {/* Email or phone */}
+            {/* Email */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Email atau No. HP</Text>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Email</Text>
               <View style={[styles.inputBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Ionicons name="person-circle-outline" size={20} color={colors.textMuted} />
                 <TextInput
                   style={[styles.input, { color: colors.text }]}
-                  placeholder="email@example.com atau 08xxxxxxxxxx"
+                  placeholder="email@example.com"
                   placeholderTextColor={colors.textMuted}
                   value={identifier}
                   onChangeText={setIdentifier}
-                  keyboardType="default"
+                  keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
@@ -255,10 +273,18 @@ function LoginScreen() {
 
           {/* Guest */}
           <Pressable
-            onPress={() => router.replace('/(tabs)/' as any)}
-            style={styles.guestRow}
+            onPress={() => router.replace('/(tabs)' as any)}
+            style={({ pressed }) => [
+              styles.guestRow,
+              {
+                borderColor: colors.primary,
+                backgroundColor: colors.overlay,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
           >
-            <Text style={[styles.guestText, { color: colors.textMuted }]}>Masuk sebagai Tamu</Text>
+            <Ionicons name="person-outline" size={19} color={colors.primary} />
+            <Text style={[styles.guestText, { color: colors.primary }]}>Masuk sebagai Tamu</Text>
           </Pressable>
 
           {/* Lihat Onboarding */}
@@ -280,14 +306,14 @@ export default memo(LoginScreen);
 const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: Spacing.lg },
-  logoSection: { alignItems: 'center', marginBottom: Spacing.xl },
-  logo: { width: 88, height: 88, marginBottom: Spacing.md },
-  appName: { fontSize: FontSize.xxxl, fontWeight: '900', letterSpacing: 2 },
+  logoSection: { alignItems: 'center', marginTop: 42, marginBottom: Spacing.xl },
+  logo: { width: 88, height: 88, marginBottom: Spacing.md, marginTop: 20 },
+  appName: { fontSize: FontSize.xxxl, fontWeight: '900', letterSpacing: 2, marginTop: 6 },
   tagline: { fontSize: FontSize.sm, fontWeight: '600', marginTop: 4 },
   card: { borderRadius: BorderRadius.xl, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
   shimmerTop: { height: 3 },
-  cardTitle: { fontSize: FontSize.xxl, fontWeight: '800', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
-  cardSub: { fontSize: FontSize.sm, paddingHorizontal: Spacing.lg, marginTop: 4, marginBottom: Spacing.lg },
+  cardTitle: { fontSize: FontSize.xxl, fontWeight: '800', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, textAlign: 'center' },
+  cardSub: { fontSize: FontSize.sm, paddingHorizontal: Spacing.lg, marginTop: 4, marginBottom: Spacing.lg, textAlign: 'center' },
 
   // Google Button
   googleBtn: {
@@ -295,7 +321,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
+    marginBottom: 8,
     paddingVertical: 12,
     borderRadius: BorderRadius.xl,
     borderWidth: 1.5,
@@ -317,19 +343,35 @@ const styles = StyleSheet.create({
     color: '#4285F4',
   },
   googleBtnText: { fontSize: FontSize.md, fontWeight: '600' },
+  superAdminBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: Spacing.lg,
+    marginBottom: 8,
+    paddingVertical: 12,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1.5,
+    gap: Spacing.sm,
+  },
+  superAdminBtnText: {
+    color: '#FFF',
+    fontSize: FontSize.md,
+    fontWeight: '700',
+  },
 
   // Divider
   dividerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
+    marginBottom: 8,
     gap: Spacing.sm,
   },
   dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
   dividerText: { fontSize: FontSize.sm },
 
-  inputGroup: { paddingHorizontal: Spacing.lg, marginBottom: Spacing.md },
+  inputGroup: { paddingHorizontal: Spacing.lg, marginBottom: 10 },
   label: { fontSize: FontSize.sm, fontWeight: '600', marginBottom: 6 },
   inputBox: { flexDirection: 'row', alignItems: 'center', borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md, height: 48, borderWidth: 1, gap: 10 },
   input: { flex: 1, fontSize: FontSize.md, height: 48 },
@@ -340,8 +382,8 @@ const styles = StyleSheet.create({
   registerRow: { flexDirection: 'row', justifyContent: 'center', marginTop: Spacing.lg },
   registerLabel: { fontSize: FontSize.md },
   registerLink: { fontSize: FontSize.md, fontWeight: '700' },
-  guestRow: { alignItems: 'center', marginTop: Spacing.md },
-  guestText: { fontSize: FontSize.sm, fontWeight: '600' },
+  guestRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.md, paddingVertical: 13, borderRadius: BorderRadius.xl, borderWidth: 2.5 },
+  guestText: { fontSize: FontSize.md, fontWeight: '800' },
   onboardingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: Spacing.md, paddingBottom: Spacing.lg },
   onboardingText: { fontSize: FontSize.sm, fontWeight: '600' },
 });

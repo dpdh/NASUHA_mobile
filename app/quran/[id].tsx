@@ -20,6 +20,7 @@ import {
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
 import { fetchSurahDetail, mapAyahToLocal } from '../../services/quranApi';
 import {
+  playQuranRangeAudio,
     playQuranAudio,
     quranAudioPlayer,
     setQuranPlaybackState,
@@ -130,7 +131,7 @@ function QuranDetailScreen() {
     'Amiri-Regular': Amiri_400Regular,
   });
 
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, ayah } = useLocalSearchParams<{ id: string; ayah?: string }>();
   const theme = useAppStore((s) => s.theme);
   const bookmarkedAyahs = useAppStore((s) => s.bookmarkedAyahs);
   const toggleBookmarkAyah = useAppStore((s) => s.toggleBookmarkAyah);
@@ -141,6 +142,7 @@ function QuranDetailScreen() {
   const flatListRef = useRef<FlatList>(null);
   const lastScrollY = useRef(0);
   const surahId = Number(id);
+  const requestedAyah = Number(ayah);
 
   const [ayahs, setAyahs] = useState<QuranAyah[]>([]);
   const [surahName, setSurahName] = useState('');
@@ -184,7 +186,11 @@ function QuranDetailScreen() {
   }, [playbackState, playingAyah, rangePlayback, repeatCount]);
 
   useEffect(() => {
-    setAudioModeAsync({ playsInSilentMode: true, interruptionMode: 'duckOthers' }).catch(() => {});
+    setAudioModeAsync({
+      playsInSilentMode: true,
+      shouldPlayInBackground: true,
+      interruptionMode: 'doNotMix',
+    }).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -204,9 +210,10 @@ function QuranDetailScreen() {
 
   useEffect(() => {
     const subscription = quranAudioPlayer.addListener('playbackStatusUpdate', (status) => {
+      if (playbackStateRef.current.rangeEnd) return;
       if (!status.didJustFinish) return;
 
-      const activeAyah = activeAyahRef.current || playingAyah;
+      const activeAyah = activeAyahRef.current;
       if (!activeAyah) return;
 
       const nextRepeat = (playbackStateRef.current.currentRepeat || 0) + 1;
@@ -247,7 +254,7 @@ function QuranDetailScreen() {
     });
 
     return () => subscription.remove();
-  }, [playingAyah]);
+  }, []);
 
   const handlePlayAyah = useCallback((item: QuranAyah) => {
     const key = `${item.surahId}:${item.ayahNumber}`;
@@ -291,8 +298,11 @@ function QuranDetailScreen() {
       return;
     }
 
+    const rangeTracks = ayahs
+      .filter((item) => item.ayahNumber >= start && item.ayahNumber <= end && Boolean(item.audioUrl))
+      .map((item) => ({ url: item.audioUrl as string, key: `${item.surahId}:${item.ayahNumber}` }));
     const firstKey = `${firstAyah.surahId}:${firstAyah.ayahNumber}`;
-    playQuranAudio({ url: firstAyah.audioUrl, key: firstKey, repeatCount, rangeEnd: end });
+    playQuranRangeAudio({ tracks: rangeTracks, repeatCount, rangeEnd: end });
     setPlayingAyah(firstKey);
     setCurrentRepeat(1);
     setRangePlayback({ end });
@@ -330,6 +340,17 @@ function QuranDetailScreen() {
       }
     }
   }, [loading, ayahs, lastReadAyah]);
+
+  useEffect(() => {
+    if (!loading && requestedAyah > 0 && ayahs.length > 0) {
+      const idx = ayahs.findIndex((item) => item.ayahNumber === requestedAyah);
+      if (idx >= 0) {
+        setTimeout(() => {
+          flatListRef.current?.scrollToIndex({ index: idx, animated: true, viewPosition: 0.3 });
+        }, 500);
+      }
+    }
+  }, [ayahs, loading, requestedAyah]);
 
   useEffect(() => {
     if (!loading && activeAyahKey && ayahs.length > 0) {

@@ -1,6 +1,6 @@
 import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, Pressable, TextInput, ActivityIndicator, ScrollView,
+  Animated, Easing, View, Text, StyleSheet, FlatList, Pressable, TextInput, ActivityIndicator, ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -74,6 +74,45 @@ const SurahItem = memo(({ item, colors, lastReadAyah }: { item: QuranSurah; colo
   </Pressable>
 ));
 
+const SEARCH_LIGHTS = [
+  { size: 138, left: -46, top: -36, color: ['rgba(76,201,240,0.30)', 'rgba(0,119,182,0.02)'] as [string, string], x: 30, y: 24, duration: 8200 },
+  { size: 104, left: 140, top: 10, color: ['rgba(125,211,252,0.25)', 'rgba(212,168,83,0.08)'] as [string, string], x: -24, y: 32, duration: 7000 },
+  { size: 82, left: 218, top: 170, color: ['rgba(212,168,83,0.28)', 'rgba(255,255,255,0.02)'] as [string, string], x: -30, y: -26, duration: 7600 },
+];
+
+const SearchLightOrb = memo(({ light }: { light: (typeof SEARCH_LIGHTS)[number] }) => {
+  const x = useRef(new Animated.Value(0)).current;
+  const y = useRef(new Animated.Value(0)).current;
+  const opacity = useRef(new Animated.Value(0.45)).current;
+
+  useEffect(() => {
+    const xLoop = Animated.loop(Animated.sequence([
+      Animated.timing(x, { toValue: light.x, duration: light.duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(x, { toValue: -light.x * 0.7, duration: light.duration * 0.9, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(x, { toValue: 0, duration: light.duration * 0.7, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ]));
+    const yLoop = Animated.loop(Animated.sequence([
+      Animated.timing(y, { toValue: -light.y, duration: light.duration * 0.8, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(y, { toValue: light.y, duration: light.duration, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(y, { toValue: 0, duration: light.duration * 0.65, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ]));
+    const glowLoop = Animated.loop(Animated.sequence([
+      Animated.timing(opacity, { toValue: 0.9, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(opacity, { toValue: 0.35, duration: 1900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    xLoop.start();
+    yLoop.start();
+    glowLoop.start();
+    return () => { xLoop.stop(); yLoop.stop(); glowLoop.stop(); };
+  }, [light, opacity, x, y]);
+
+  return (
+    <Animated.View pointerEvents="none" style={[styles.searchLightOrb, { width: light.size, height: light.size, borderRadius: light.size / 2, left: light.left, top: light.top, opacity, transform: [{ translateX: x }, { translateY: y }] }]}>
+      <LinearGradient colors={light.color} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+    </Animated.View>
+  );
+});
+
 function QuranScreen() {
   const theme = useAppStore((s) => s.theme);
   const lastReadAyahs = useAppStore((s) => s.lastReadAyahs);
@@ -87,8 +126,6 @@ function QuranScreen() {
   // Wheel picker state
   const [selectedSurah, setSelectedSurah] = useState(1);
   const [selectedAyah, setSelectedAyah] = useState(1);
-  const surahScrollRef = useRef<FlatList>(null);
-  const ayahScrollRef = useRef<FlatList>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -119,8 +156,11 @@ function QuranScreen() {
   }, [search, surahs]);
 
   const handleGoToAyah = useCallback(() => {
-    router.push(`/quran/${selectedSurah}` as any);
-  }, [selectedSurah]);
+    router.push({
+      pathname: `/quran/${selectedSurah}`,
+      params: { ayah: String(selectedAyah) },
+    } as any);
+  }, [selectedAyah, selectedSurah]);
 
   const renderSurahItem = useCallback(
     ({ item }: { item: QuranSurah }) => <SurahItem item={item} colors={colors} lastReadAyah={lastReadAyahs[String(item.id)] || 0} />,
@@ -212,7 +252,15 @@ function QuranScreen() {
         />
       ) : (
         /* ─── CARI (Search + Wheel Picker) ─── */
-        <ScrollView contentContainerStyle={styles.searchContent} showsVerticalScrollIndicator={false}>
+        <FlatList
+          data={search.trim() ? filtered : []}
+          keyExtractor={(item) => String(item.id)}
+          contentContainerStyle={styles.searchContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          nestedScrollEnabled
+          ListHeaderComponent={(
+            <>
           {/* Text Search */}
           <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Ionicons name="search-outline" size={18} color={colors.textMuted} />
@@ -229,6 +277,9 @@ function QuranScreen() {
 
           {/* Wheel Picker: Surah + Ayah */}
           <View style={[styles.wheelCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.md]}>
+            <View pointerEvents="none" style={styles.searchLightLayer}>
+              {SEARCH_LIGHTS.map((light) => <SearchLightOrb key={`${light.left}-${light.top}`} light={light} />)}
+            </View>
             <Text style={[styles.wheelTitle, { color: colors.gold }]}>Navigasi Cepat</Text>
             <Text style={[styles.wheelHint, { color: colors.textMuted }]}>Pilih surah dan ayat untuk langsung membaca</Text>
 
@@ -236,51 +287,50 @@ function QuranScreen() {
               {/* Surah Wheel */}
               <View style={styles.wheelCol}>
                 <Text style={[styles.wheelLabel, { color: colors.textSecondary }]}>Surah</Text>
-                <FlatList
-                  ref={surahScrollRef}
-                  data={surahs}
-                  keyExtractor={(s) => String(s.id)}
+                <ScrollView
                   style={[styles.wheelScroll, { borderColor: colors.border }]}
                   showsVerticalScrollIndicator={false}
-                  snapToInterval={44}
-                  decelerationRate="fast"
-                  initialScrollIndex={Math.max(0, selectedSurah - 3)}
-                  getItemLayout={(_, i) => ({ length: 44, offset: 44 * i, index: i })}
-                  onScrollToIndexFailed={() => {}}
-                  renderItem={({ item: s }) => (
+                  nestedScrollEnabled
+                  scrollEnabled
+                  bounces
+                  overScrollMode="always"
+                  contentContainerStyle={styles.wheelContent}
+                >
+                  {surahs.map((s) => (
                     <Pressable
+                      key={s.id}
                       onPress={() => { setSelectedSurah(s.id); setSelectedAyah(1); }}
                       style={[styles.wheelItem, selectedSurah === s.id && { backgroundColor: colors.primary + '15' }]}
                     >
                       <Text style={[styles.wheelItemNum, { color: selectedSurah === s.id ? colors.primary : colors.textMuted }]}>{s.id}.</Text>
                       <Text style={[styles.wheelItemText, { color: selectedSurah === s.id ? colors.primary : colors.text }]} numberOfLines={1}>{s.name}</Text>
                     </Pressable>
-                  )}
-                />
+                  ))}
+                </ScrollView>
               </View>
 
               {/* Ayah Wheel */}
               <View style={styles.wheelColSmall}>
                 <Text style={[styles.wheelLabel, { color: colors.textSecondary }]}>Ayat</Text>
-                <FlatList
-                  ref={ayahScrollRef}
-                  data={Array.from({ length: maxAyah }, (_, i) => i + 1)}
-                  keyExtractor={(n) => String(n)}
+                <ScrollView
                   style={[styles.wheelScroll, { borderColor: colors.border }]}
                   showsVerticalScrollIndicator={false}
-                  snapToInterval={44}
-                  decelerationRate="fast"
-                  getItemLayout={(_, i) => ({ length: 44, offset: 44 * i, index: i })}
-                  onScrollToIndexFailed={() => {}}
-                  renderItem={({ item: n }) => (
+                  nestedScrollEnabled
+                  scrollEnabled
+                  bounces
+                  overScrollMode="always"
+                  contentContainerStyle={styles.wheelContent}
+                >
+                  {Array.from({ length: maxAyah }, (_, i) => i + 1).map((n) => (
                     <Pressable
+                      key={n}
                       onPress={() => setSelectedAyah(n)}
                       style={[styles.wheelItem, styles.wheelItemCenter, selectedAyah === n && { backgroundColor: colors.gold + '15' }]}
                     >
                       <Text style={[styles.wheelItemNum, { color: selectedAyah === n ? colors.gold : colors.text }]}>{n}</Text>
                     </Pressable>
-                  )}
-                />
+                  ))}
+                </ScrollView>
               </View>
             </View>
 
@@ -295,31 +345,26 @@ function QuranScreen() {
               </LinearGradient>
             </Pressable>
           </View>
-
-          {/* Search Results */}
-          {search.trim().length > 0 && (
-            <View style={styles.searchResults}>
-              <Text style={[styles.searchResultLabel, { color: colors.textSecondary }]}>{filtered.length} surah ditemukan</Text>
-              {filtered.map((s) => (
-                <Pressable
-                  key={s.id}
-                  onPress={() => router.push(`/quran/${s.id}` as any)}
-                  style={[styles.searchResultItem, { backgroundColor: colors.card, borderColor: colors.border }]}
-                >
-                  <View style={[styles.surahNumber, { backgroundColor: colors.primary }]}>
-                    <Text style={styles.surahNumberText}>{s.id}</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.surahName, { color: colors.text }]}>{s.name}</Text>
-                    <Text style={[styles.surahMeta, { color: colors.textSecondary }]}>{s.meaning} • {s.ayahCount} ayat</Text>
-                  </View>
-                  <Text style={[styles.surahArabic, { color: colors.primary }]}>{s.arabic}</Text>
-                </Pressable>
-              ))}
-            </View>
+          <Text style={[styles.searchResultLabel, { color: colors.textSecondary }]}>{search.trim() ? `${filtered.length} surah ditemukan` : 'Ketik nama surah untuk mencari'}</Text>
+            </>
           )}
-          <View style={{ height: 100 }} />
-        </ScrollView>
+          renderItem={({ item: s }) => (
+            <Pressable
+              onPress={() => router.push(`/quran/${s.id}` as any)}
+              style={[styles.searchResultItem, { backgroundColor: colors.card, borderColor: colors.border }]}
+            >
+              <View style={[styles.surahNumber, { backgroundColor: colors.primary }]}>
+                <Text style={styles.surahNumberText}>{s.id}</Text>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.surahName, { color: colors.text }]}>{s.name}</Text>
+                <Text style={[styles.surahMeta, { color: colors.textSecondary }]}>{s.meaning} • {s.ayahCount} ayat</Text>
+              </View>
+              <Text style={[styles.surahArabic, { color: colors.primary }]}>{s.arabic}</Text>
+            </Pressable>
+          )}
+          ListFooterComponent={<View style={{ height: 100 }} />}
+        />
       )}
     </View>
   );
@@ -360,7 +405,9 @@ const styles = StyleSheet.create({
   searchBox: { flexDirection: 'row', alignItems: 'center', borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md, height: 44, borderWidth: 1, gap: 8, marginBottom: Spacing.lg },
   searchInput: { flex: 1, fontSize: FontSize.md, height: 44 },
 
-  wheelCard: { borderRadius: BorderRadius.lg, borderWidth: StyleSheet.hairlineWidth, padding: Spacing.lg, overflow: 'hidden' },
+  wheelCard: { position: 'relative', borderRadius: BorderRadius.lg, borderWidth: StyleSheet.hairlineWidth, padding: Spacing.lg, overflow: 'hidden' },
+  searchLightLayer: { ...StyleSheet.absoluteFill, overflow: 'hidden', borderRadius: BorderRadius.lg },
+  searchLightOrb: { position: 'absolute', overflow: 'hidden', shadowColor: '#4CC9F0', shadowOpacity: 0.3, shadowRadius: 26, shadowOffset: { width: 0, height: 0 }, elevation: 5 },
   wheelTitle: { fontSize: FontSize.lg, fontWeight: '800' },
   wheelHint: { fontSize: FontSize.xs, marginTop: 2, marginBottom: Spacing.md },
   wheelRow: { flexDirection: 'row', gap: Spacing.md, marginBottom: Spacing.lg },
@@ -368,6 +415,7 @@ const styles = StyleSheet.create({
   wheelColSmall: { flex: 1 },
   wheelLabel: { fontSize: FontSize.xs, fontWeight: '700', marginBottom: Spacing.xs },
   wheelScroll: { height: 220, borderWidth: 1, borderRadius: BorderRadius.md },
+  wheelContent: { paddingVertical: 2 },
   wheelItem: { height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: Spacing.md, gap: 6 },
   wheelItemCenter: { justifyContent: 'center' },
   wheelItemNum: { fontSize: FontSize.sm, fontWeight: '700', minWidth: 28 },

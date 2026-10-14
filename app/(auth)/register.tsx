@@ -17,7 +17,7 @@ import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
-import { useGoogleAuth, fetchGoogleUserInfo } from '../../services/googleAuth';
+import { useGoogleAuth, fetchGoogleUserInfo, getGoogleAccessToken, getGoogleAuthError, getGoogleSetupHint } from '../../services/googleAuth';
 import { syncGoogleProfile } from '../../services/userProvider';
 
 const LOGO_SPLASH = require('../../assets/images/logo-splash.png');
@@ -25,6 +25,7 @@ const LOGO_SPLASH = require('../../assets/images/logo-splash.png');
 function RegisterScreen() {
   const theme = useAppStore((s) => s.theme);
   const register = useAppStore((s) => s.register);
+  const setUser = useAppStore((s) => s.setUser);
   const loginWithGoogle = useAppStore((s) => s.loginWithGoogle);
   const colors = Colors[theme];
 
@@ -38,17 +39,6 @@ function RegisterScreen() {
   const [googleLoading, setGoogleLoading] = useState(false);
 
   const { request, response, promptAsync, isConfigured } = useGoogleAuth();
-
-  useEffect(() => {
-    if (response?.type === 'success' && response.authentication?.accessToken) {
-      handleGoogleSuccess(response.authentication.accessToken);
-    } else if (response?.type === 'error') {
-      setGoogleLoading(false);
-      Alert.alert('Error', 'Pendaftaran Google gagal. Silakan coba lagi.');
-    } else if (response?.type === 'dismiss') {
-      setGoogleLoading(false);
-    }
-  }, [response]);
 
   const handleGoogleSuccess = useCallback(async (accessToken: string) => {
     setGoogleLoading(true);
@@ -66,17 +56,12 @@ function RegisterScreen() {
         email: userInfo.email,
         name: userInfo.name || userInfo.email.split('@')[0],
         avatar: userInfo.picture,
+        backendToken: providerProfile?.backendToken,
         membershipType: providerProfile?.membershipType,
         membershipFeatures: providerProfile?.membershipFeatures,
       });
 
-      const user = useAppStore.getState().user;
-      const roleMsg = (user?.role === 'super_admin' || user?.role === 'admin') ? `\nAnda terdaftar sebagai ${user?.role === 'super_admin' ? 'Super Admin' : 'Admin'}!` : '';
-      Alert.alert(
-        'Alhamdulillah!',
-        `Pendaftaran dengan Google berhasil. Selamat bergabung di NASUHA Jakarta!${roleMsg}`,
-        [{ text: 'Mulai', onPress: () => router.replace('/(tabs)/' as any) }],
-      );
+      router.replace('/(tabs)' as any);
     } catch {
       Alert.alert('Error', 'Terjadi kesalahan saat mendaftar dengan Google');
     } finally {
@@ -84,9 +69,26 @@ function RegisterScreen() {
     }
   }, [loginWithGoogle]);
 
+  useEffect(() => {
+    const accessToken = getGoogleAccessToken(response);
+    if (response?.type === 'success' && accessToken) {
+      handleGoogleSuccess(accessToken);
+    } else if (response?.type === 'error') {
+      setGoogleLoading(false);
+      Alert.alert('Pendaftaran Google gagal', getGoogleAuthError(response));
+    } else if (response?.type === 'cancel' || response?.type === 'dismiss') {
+      setGoogleLoading(false);
+    }
+  }, [handleGoogleSuccess, response]);
+
   const handleGoogleRegister = useCallback(async () => {
     if (!isConfigured || !request) {
-      Alert.alert('Google Sign-Up Belum Aktif', 'Isi EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID untuk Android atau Client ID platform yang sesuai di file .env, lalu build ulang aplikasi.');
+      Alert.alert(
+        'Google Sign-Up Belum Aktif',
+        `${getGoogleSetupHint()}\n\n` +
+        'Pastikan juga file .env sudah berisi Client ID platform yang sesuai dan build ulang aplikasi.',
+        [{ text: 'OK' }]
+      );
       return;
     }
     setGoogleLoading(true);
@@ -94,7 +96,7 @@ function RegisterScreen() {
       await promptAsync();
     } catch {
       setGoogleLoading(false);
-      Alert.alert('Error', 'Tidak dapat membuka halaman Google');
+      Alert.alert('Pendaftaran Google gagal', 'Tidak dapat membuka halaman Google. Pastikan Chrome/Safari tersedia dan coba lagi.');
     }
   }, [promptAsync, isConfigured, request]);
 
@@ -115,12 +117,13 @@ function RegisterScreen() {
       return;
     }
 
-    const user = useAppStore.getState().user;
-    const roleMsg = (user?.role === 'super_admin' || user?.role === 'admin') ? `\nAnda terdaftar sebagai ${user?.role === 'super_admin' ? 'Super Admin' : 'Admin'}!` : '';
-    Alert.alert('Alhamdulillah!', `Pendaftaran berhasil. Selamat bergabung di NASUHA Jakarta!${roleMsg}`, [
-      { text: 'Mulai', onPress: () => router.replace('/(tabs)/' as any) },
-    ]);
+    router.replace('/(tabs)' as any);
   }, [name, email, phone, password, confirmPassword, register]);
+
+  const handleGuestAccess = useCallback(() => {
+    setUser(null);
+    router.replace('/(tabs)' as any);
+  }, [setUser]);
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -270,6 +273,16 @@ function RegisterScreen() {
                 )}
               </LinearGradient>
             </Pressable>
+
+            <Pressable
+              onPress={handleGuestAccess}
+              style={({ pressed }) => [styles.guestBtn, { borderColor: colors.primary, backgroundColor: colors.overlay, opacity: pressed ? 0.8 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Masuk sebagai tamu"
+            >
+              <Ionicons name="arrow-forward-circle-outline" size={21} color={colors.primary} />
+              <Text style={[styles.guestText, { color: colors.primary }]}>Masuk sebagai Tamu</Text>
+            </Pressable>
           </View>
 
           {/* Login Link */}
@@ -340,6 +353,8 @@ const styles = StyleSheet.create({
   input: { flex: 1, fontSize: FontSize.md, height: 48 },
   registerBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginHorizontal: Spacing.lg, marginTop: Spacing.sm, marginBottom: Spacing.lg, paddingVertical: 14, borderRadius: BorderRadius.xl, gap: Spacing.sm },
   registerText: { color: '#FFF', fontSize: FontSize.lg, fontWeight: '700' },
+  guestBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginHorizontal: Spacing.lg, marginBottom: Spacing.lg, paddingVertical: 13, borderRadius: BorderRadius.xl, borderWidth: 1.5, gap: Spacing.sm },
+  guestText: { fontSize: FontSize.lg, fontWeight: '800' },
   loginRow: { flexDirection: 'row', justifyContent: 'center', marginTop: Spacing.lg, paddingBottom: Spacing.lg },
   loginLabel: { fontSize: FontSize.md },
   loginLink: { fontSize: FontSize.md, fontWeight: '700' },

@@ -15,7 +15,7 @@ import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constant
 import { TSN_INFO, SAMPLE_EVENTS } from '../../constants/data';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
 
-const LOGO_KAWANATA = require('../../assets/images/logo-kawanata.png');
+const LOGO_NASUHA = require('../../assets/images/logo NASUHA.png');
 
 function TSNScreen() {
   const theme = useAppStore((s) => s.theme);
@@ -28,7 +28,7 @@ function TSNScreen() {
         <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </Pressable>
-        <Image source={LOGO_KAWANATA} style={styles.heroLogo} resizeMode="contain" />
+        <Image source={LOGO_NASUHA} style={styles.heroLogo} resizeMode="contain" />
         <Text style={styles.heroTitle}>{TSN_INFO.title}</Text>
         <Text style={styles.heroSub}>{TSN_INFO.subtitle}</Text>
       </LinearGradient>

@@ -6,7 +6,9 @@ import {
   ScrollView,
   Pressable,
   Alert,
+  Image,
   Linking,
+  Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -30,13 +32,13 @@ interface InfaqProgram {
 const INFAQ_PROGRAMS: InfaqProgram[] = [
   {
     id: 'app',
-    title: 'Pengembangan Aplikasi',
+    title: 'Support Development Software',
     description: 'Infaq untuk pengembangan dan maintenance Aplikasi NASUHA agar terus bermanfaat bagi umat. Dana digunakan untuk server, update fitur, dan perbaikan bug.',
     icon: 'phone-portrait-outline',
     gradient: ['#00B4D8', '#0077B6'],
     bankName: 'Bank Syariah Indonesia (BSI)',
-    bankAccount: '7171-0000-00',
-    bankHolder: 'Yayasan NASUHA',
+    bankAccount: '7359302295',
+    bankHolder: 'M. Ashadi Setiawan',
     whatsappConfirm: '6281234567890',
   },
   {
@@ -46,8 +48,8 @@ const INFAQ_PROGRAMS: InfaqProgram[] = [
     icon: 'sunny-outline',
     gradient: ['#F59E0B', '#D97706'],
     bankName: 'Bank Syariah Indonesia (BSI)',
-    bankAccount: '7171-0000-01',
-    bankHolder: 'Yayasan NASUHA',
+    bankAccount: '7359302295',
+    bankHolder: 'M. Ashadi Setiawan',
     whatsappConfirm: '6281234567890',
   },
   {
@@ -57,8 +59,8 @@ const INFAQ_PROGRAMS: InfaqProgram[] = [
     icon: 'water-outline',
     gradient: ['#06B6D4', '#0891B2'],
     bankName: 'Bank Syariah Indonesia (BSI)',
-    bankAccount: '7171-0000-02',
-    bankHolder: 'Yayasan NASUHA',
+    bankAccount: '7359302295',
+    bankHolder: 'M. Ashadi Setiawan',
     whatsappConfirm: '6281234567890',
   },
 ];
@@ -72,6 +74,7 @@ function InfaqScreen() {
   const colors = Colors[theme];
   const [selectedProgram, setSelectedProgram] = useState<InfaqProgram>(INFAQ_PROGRAMS[0]);
   const [selectedNominal, setSelectedNominal] = useState<number | null>(null);
+  const [showSupportImage, setShowSupportImage] = useState(false);
 
   const handleCopyAccount = useCallback(async () => {
     await Clipboard.setStringAsync(selectedProgram.bankAccount);
@@ -106,6 +109,42 @@ function InfaqScreen() {
           "Perumpamaan orang yang menginfakkan hartanya di jalan Allah seperti sebutir biji yang menumbuhkan tujuh tangkai, pada setiap tangkai ada seratus biji." (QS. Al-Baqarah: 261)
         </Text>
       </View>
+
+      <View style={[styles.supportCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
+        <Pressable onPress={() => setShowSupportImage(true)} accessibilityLabel="Perbesar gambar SSNJ">
+          <Image source={require('../../assets/SSNJ.jpg')} style={styles.supportImage} resizeMode="contain" />
+          <View style={styles.zoomHint}>
+            <Ionicons name="expand-outline" size={16} color="#FFF" />
+            <Text style={styles.zoomHintText}>Ketuk untuk memperbesar</Text>
+          </View>
+        </Pressable>
+        <Text style={[styles.supportTitle, { color: colors.text }]}>Support Development Software & Sedekah Sahabat NASUHA</Text>
+        <Text style={[styles.supportText, { color: colors.textSecondary }]}>💳 Salurkan Sedekah Subuh, AMG, KMJ & Sedekah Spesial melalui Rekening Bendahara Nasuha Jakarta:</Text>
+        <View style={[styles.supportBank, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <Text style={[styles.supportBankText, { color: colors.text }]}>🏦 BSI : 7359302295</Text>
+          <Text style={[styles.supportBankText, { color: colors.text }]}>👤 a.n M. Ashadi Setiawan</Text>
+        </View>
+      </View>
+
+      <Modal visible={showSupportImage} transparent animationType="fade" onRequestClose={() => setShowSupportImage(false)}>
+        <View style={styles.imageModal}>
+          <Pressable style={styles.imageModalClose} onPress={() => setShowSupportImage(false)} accessibilityLabel="Tutup gambar">
+            <Ionicons name="close" size={28} color="#FFF" />
+          </Pressable>
+          <ScrollView
+            style={styles.imageZoomViewport}
+            contentContainerStyle={styles.imageZoomContent}
+            minimumZoomScale={1}
+            maximumZoomScale={3}
+            bouncesZoom
+            centerContent
+            showsHorizontalScrollIndicator={false}
+            showsVerticalScrollIndicator={false}
+          >
+            <Image source={require('../../assets/SSNJ.jpg')} style={styles.fullSupportImage} resizeMode="contain" />
+          </ScrollView>
+        </View>
+      </Modal>
 
       {/* Program Tabs */}
       <View style={styles.programTabs}>
@@ -240,6 +279,20 @@ const styles = StyleSheet.create({
   ayatCard: { marginHorizontal: Spacing.lg, marginTop: -Spacing.md, padding: Spacing.lg, borderRadius: BorderRadius.lg, borderWidth: StyleSheet.hairlineWidth },
   ayatArabic: { fontSize: 22, lineHeight: 40, textAlign: 'right', fontFamily: 'Lateef-Regular', marginBottom: Spacing.sm },
   ayatTranslation: { fontSize: FontSize.sm, lineHeight: 20, fontStyle: 'italic' },
+
+  supportCard: { marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.md, borderRadius: BorderRadius.lg, borderWidth: StyleSheet.hairlineWidth },
+  supportImage: { width: '100%', height: 220, borderRadius: BorderRadius.md, backgroundColor: '#E8F0F0' },
+  zoomHint: { position: 'absolute', right: 10, bottom: 10, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 6, borderRadius: BorderRadius.full, backgroundColor: 'rgba(0,0,0,0.58)' },
+  zoomHintText: { color: '#FFF', fontSize: FontSize.xs, fontWeight: '700' },
+  imageModal: { flex: 1, backgroundColor: 'rgba(0,0,0,0.94)', alignItems: 'center', justifyContent: 'center', padding: Spacing.md },
+  imageZoomViewport: { width: '100%', height: '82%' },
+  imageZoomContent: { flexGrow: 1, alignItems: 'center', justifyContent: 'center' },
+  fullSupportImage: { width: 360, height: 620 },
+  imageModalClose: { position: 'absolute', top: 52, right: 18, zIndex: 2, width: 44, height: 44, borderRadius: 22, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)' },
+  supportTitle: { fontSize: FontSize.lg, fontWeight: '800', lineHeight: 23, marginTop: Spacing.md },
+  supportText: { fontSize: FontSize.sm, lineHeight: 21, marginTop: Spacing.sm },
+  supportBank: { borderWidth: 1, borderRadius: BorderRadius.md, padding: Spacing.md, marginTop: Spacing.md, gap: Spacing.xs },
+  supportBankText: { fontSize: FontSize.md, fontWeight: '700', lineHeight: 22 },
 
   programTabs: { flexDirection: 'row', marginHorizontal: Spacing.lg, marginTop: Spacing.lg, gap: Spacing.sm },
   programTab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, paddingVertical: 10, borderRadius: BorderRadius.lg, borderWidth: 1, borderColor: 'transparent' },

@@ -2,6 +2,8 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import type { NotificationSettings, PrayerLocation } from '../types';
 import { getNotifications } from './nativeModules';
+import { registerForPushNotificationsAsync } from './pushNotifications';
+import { readCache, writeCache } from './storage';
 
 export interface PrayerTimes {
   Fajr: string;
@@ -29,12 +31,25 @@ interface ScheduledNotification {
 }
 
 const KAABA = { latitude: 21.422487, longitude: 39.826206 };
+const NOTIFICATION_SOUND = 'nas_1.mp3';
+const FAJR_ADHAN_SOUND = 'fajr_128_44.mp3';
+const REGULAR_ADHAN_SOUND = 'mecca_56_22.mp3';
+const FAJR_ADHAN_CHANNEL = 'adhan-fajr-v2';
+const REGULAR_ADHAN_CHANNEL = 'adhan-regular-v1';
+const REMINDER_CHANNEL = 'reminders-v2';
+const TAHAJUD_CHANNEL = 'tahajud-call-v2';
+export const NEARBY_MOSQUE_RADIUS_METERS = 1000;
 export const DEFAULT_PRAYER_LOCATION: PrayerLocation = {
   latitude: -6.2088,
   longitude: 106.8456,
   city: 'Jakarta',
   country: 'Indonesia',
 };
+const PRAYER_CACHE_TTL = 6 * 60 * 60 * 1000;
+const MOSQUE_CACHE_TTL = 30 * 60 * 1000;
+const NETWORK_TIMEOUT_MS = 8000;
+const prayerRequests = new Map<string, Promise<PrayerTimes>>();
+const mosqueRequests = new Map<string, Promise<NearbyMosque[]>>();
 const PRAYER_NAMES: Array<keyof PrayerTimes> = ['Fajr', 'Dhuhr', 'Asr', 'Maghrib', 'Isha'];
 const PRAYER_LABELS: Record<string, string> = {
   Fajr: 'Subuh',
@@ -71,13 +86,35 @@ export async function getCurrentPrayerLocation(): Promise<PrayerLocation> {
 
 export async function fetchPrayerTimes(location: PrayerLocation, date = new Date()): Promise<PrayerTimes> {
   const dateValue = `${String(date.getDate()).padStart(2, '0')}-${String(date.getMonth() + 1).padStart(2, '0')}-${date.getFullYear()}`;
-  const response = await fetch(
-    `https://api.aladhan.com/v1/timings/${dateValue}?latitude=${location.latitude}&longitude=${location.longitude}&method=20`,
-  );
-  if (!response.ok) throw new Error('Jadwal shalat tidak dapat dimuat.');
-  const payload = await response.json();
-  if (payload.code !== 200 || !payload.data?.timings) throw new Error('Jadwal shalat tidak tersedia.');
-  return payload.data.timings as PrayerTimes;
+  const cacheKey = `@nasjak_prayer_${dateValue}_${location.latitude.toFixed(3)}_${location.longitude.toFixed(3)}`;
+  const cached = await readCache<PrayerTimes>(cacheKey, PRAYER_CACHE_TTL);
+  if (cached) return cached;
+  const existingRequest = prayerRequests.get(cacheKey);
+  if (existingRequest) return existingRequest;
+
+  const request = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+    try {
+      const response = await fetch(
+        `https://api.aladhan.com/v1/timings/${dateValue}?latitude=${location.latitude}&longitude=${location.longitude}&method=20`,
+        { signal: controller.signal },
+      );
+      if (!response.ok) throw new Error(`Jadwal shalat tidak dapat dimuat (${response.status}).`);
+      const payload = await response.json();
+      if (payload.code !== 200 || !payload.data?.timings) {
+        throw new Error(payload.status || 'Jadwal shalat tidak tersedia.');
+      }
+      const times = payload.data.timings as PrayerTimes;
+      await writeCache(cacheKey, times);
+      return times;
+    } finally {
+      clearTimeout(timeout);
+      prayerRequests.delete(cacheKey);
+    }
+  })();
+  prayerRequests.set(cacheKey, request);
+  return request;
 }
 
 export function getPrayerEntries(times: PrayerTimes) {
@@ -97,12 +134,46 @@ export function getQiblaBearing(location: PrayerLocation): number {
 }
 
 export async function fetchNearbyMosques(location: PrayerLocation): Promise<NearbyMosque[]> {
-  const query = `[out:json][timeout:15];(nwr[amenity=place_of_worship][religion=muslim](around:5000,${location.latitude},${location.longitude});nwr[amenity=mosque](around:5000,${location.latitude},${location.longitude}););out center tags;`;
-  const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
-  if (!response.ok) throw new Error('Masjid terdekat tidak dapat dimuat.');
-  const payload = await response.json();
-  const seen = new Set<string>();
-  return (payload.elements || [])
+  const cacheKey = `@nasjak_mosques_${location.latitude.toFixed(3)}_${location.longitude.toFixed(3)}`;
+  const cached = await readCache<NearbyMosque[]>(cacheKey, MOSQUE_CACHE_TTL);
+  if (cached) return cached;
+  const existingRequest = mosqueRequests.get(cacheKey);
+  if (existingRequest) return existingRequest;
+
+  const request = (async () => {
+    const query = `[out:json][timeout:8];(nwr[amenity=mosque](around:${NEARBY_MOSQUE_RADIUS_METERS},${location.latitude},${location.longitude});nwr[amenity=place_of_worship][religion=muslim](around:${NEARBY_MOSQUE_RADIUS_METERS},${location.latitude},${location.longitude}););out center tags;`;
+    try {
+      const endpoints = [
+        'https://overpass-api.de/api/interpreter',
+        'https://overpass.kumi.systems/api/interpreter',
+      ];
+      let response: Response | null = null;
+      let lastError = 'Masjid terdekat tidak dapat dimuat.';
+      for (const endpoint of endpoints) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+        try {
+          const nextResponse = await fetch(endpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `data=${encodeURIComponent(query)}`,
+            signal: controller.signal,
+          });
+          if (nextResponse.ok) {
+            response = nextResponse;
+            break;
+          }
+          lastError = `Masjid terdekat tidak dapat dimuat (${nextResponse.status}).`;
+        } catch (error) {
+          lastError = 'Koneksi pencarian masjid tidak tersedia.';
+        } finally {
+          clearTimeout(timeout);
+        }
+      }
+      if (!response) throw new Error(lastError);
+      const payload = await response.json();
+      const seen = new Set<string>();
+      const mosques = (payload.elements || [])
     .map((element: any) => {
       const latitude = element.lat ?? element.center?.lat;
       const longitude = element.lon ?? element.center?.lon;
@@ -120,31 +191,59 @@ export async function fetchNearbyMosques(location: PrayerLocation): Promise<Near
         address: [element.tags?.['addr:street'], element.tags?.['addr:city']].filter(Boolean).join(', ') || undefined,
       } as NearbyMosque;
     })
-    .filter(Boolean)
+    .filter((mosque: NearbyMosque | null): mosque is NearbyMosque => mosque !== null && mosque.distanceKm * 1000 <= NEARBY_MOSQUE_RADIUS_METERS)
     .sort((a: NearbyMosque, b: NearbyMosque) => a.distanceKm - b.distanceKm)
     .slice(0, 10);
+      await writeCache(cacheKey, mosques);
+      return mosques;
+    } finally {
+      mosqueRequests.delete(cacheKey);
+    }
+  })();
+  mosqueRequests.set(cacheKey, request);
+  return request;
 }
 
 export async function requestNotificationPermission(): Promise<boolean> {
   const Notifications = getNotifications();
   if (!Notifications) return false;
   if (Platform.OS === 'android') {
-    await Notifications.setNotificationChannelAsync('adhan-v2', {
-      name: 'Adzan',
+    await Notifications.setNotificationChannelAsync(FAJR_ADHAN_CHANNEL, {
+      name: 'Adzan Subuh',
       importance: Notifications.AndroidImportance.MAX,
-      sound: 'adhan.mp3',
+      sound: FAJR_ADHAN_SOUND,
       vibrationPattern: [0, 250, 250, 250],
     });
-    await Notifications.setNotificationChannelAsync('reminders', {
+    await Notifications.setNotificationChannelAsync(REGULAR_ADHAN_CHANNEL, {
+      name: 'Adzan Dzuhur, Ashar, Maghrib, Isya',
+      importance: Notifications.AndroidImportance.MAX,
+      sound: REGULAR_ADHAN_SOUND,
+      vibrationPattern: [0, 250, 250, 250],
+    });
+    await Notifications.setNotificationChannelAsync(REMINDER_CHANNEL, {
       name: 'Pengingat NASUHA',
       importance: Notifications.AndroidImportance.DEFAULT,
-      sound: 'default',
+      sound: NOTIFICATION_SOUND,
+    });
+    await Notifications.setNotificationChannelAsync(TAHAJUD_CHANNEL, {
+      name: 'Tahajud Call',
+      importance: Notifications.AndroidImportance.MAX,
+      sound: NOTIFICATION_SOUND,
+      vibrationPattern: [0, 500, 300, 500],
     });
   }
   const current = await Notifications.getPermissionsAsync();
-  if (current.granted) return true;
-  const requested = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: true, allowSound: true } });
-  return requested.granted;
+  const permissions = current.granted
+    ? current
+    : await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: true, allowSound: true } });
+  if (!permissions.granted) return false;
+
+  try {
+    await registerForPushNotificationsAsync();
+  } catch {
+    // Local scheduling remains available when remote push credentials are not ready.
+  }
+  return true;
 }
 
 export async function rescheduleNotifications(times: PrayerTimes, settings: NotificationSettings): Promise<void> {
@@ -156,20 +255,29 @@ export async function rescheduleNotifications(times: PrayerTimes, settings: Noti
       .filter((item: ScheduledNotification) => item.content.data?.nasjakNotification === true)
       .map((item: ScheduledNotification) => Notifications.cancelScheduledNotificationAsync(item.identifier)),
   );
+  const hasEnabledNotification = Object.entries(settings)
+    .some(([key, value]) => key.endsWith('Enabled') && value === true);
+  if (!hasEnabledNotification) return;
   if (!(await requestNotificationPermission())) return;
 
   if (settings.adhanEnabled) {
     for (const key of PRAYER_NAMES) {
-      const [hour, minute] = times[key].split(':').map(Number);
-      if (!Number.isFinite(hour) || !Number.isFinite(minute)) continue;
+      const [hour, minute] = parseReminderTime(times[key]);
+      if (hour === null || minute === null) continue;
+      const isFajr = key === 'Fajr';
       await Notifications.scheduleNotificationAsync({
         content: {
           title: `Waktu ${PRAYER_LABELS[key]}`,
           body: `Telah masuk waktu shalat ${PRAYER_LABELS[key]}. Mari tunaikan dengan khusyuk.`,
-          sound: 'adhan.mp3',
+          sound: isFajr ? FAJR_ADHAN_SOUND : REGULAR_ADHAN_SOUND,
           data: { nasjakNotification: true, kind: 'adhan', prayer: key },
         },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour, minute, channelId: 'adhan-v2' },
+        trigger: {
+          type: Notifications.SchedulableTriggerInputTypes.DAILY,
+          hour,
+          minute,
+          channelId: isFajr ? FAJR_ADHAN_CHANNEL : REGULAR_ADHAN_CHANNEL,
+        },
       });
     }
   }
@@ -177,11 +285,12 @@ export async function rescheduleNotifications(times: PrayerTimes, settings: Noti
   if (settings.motivationalEnabled) {
     await Notifications.scheduleNotificationAsync({
       content: {
-        title: 'Motivasi Hari Ini',
-        body: 'Satu langkah kecil hari ini bisa menjadi perubahan besar. Yuk baca motivasi NASUHA.',
+        title: 'Motivasi NASUHA',
+        body: 'Tarik napas, lanjutkan langkahmu, dan percaya bahwa ikhtiar kecilmu hari ini berarti.',
+        sound: NOTIFICATION_SOUND,
         data: { nasjakNotification: true, kind: 'motivasi' },
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: 7, minute: 0, channelId: 'reminders' },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 60 * 60, repeats: true, channelId: REMINDER_CHANNEL },
     });
   }
 
@@ -190,9 +299,10 @@ export async function rescheduleNotifications(times: PrayerTimes, settings: Noti
       content: {
         title: 'Riyadhoh Reminder',
         body: 'Sudahkah Anda menyelesaikan Riyadhoh hari ini? Ayo istiqamah.',
+        sound: NOTIFICATION_SOUND,
         data: { nasjakNotification: true, kind: 'riyadhoh' },
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: settings.riyadhohHour, minute: settings.riyadhohMinute, channelId: 'reminders' },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: settings.riyadhohHour, minute: settings.riyadhohMinute, channelId: REMINDER_CHANNEL },
     });
   }
 
@@ -201,9 +311,10 @@ export async function rescheduleNotifications(times: PrayerTimes, settings: Noti
       content: {
         title: 'Istighfar 10 menit',
         body: 'Astaghfirullah. Ambil 10 menit untuk menyegarkan hati dan memohon ampunan Allah.',
+        sound: NOTIFICATION_SOUND,
         data: { nasjakNotification: true, kind: 'istighfar' },
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 60 * 10, repeats: true, channelId: 'reminders' },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 60 * 10, repeats: true, channelId: REMINDER_CHANNEL },
     });
   }
 
@@ -212,9 +323,10 @@ export async function rescheduleNotifications(times: PrayerTimes, settings: Noti
       content: {
         title: 'Dzikir NASUHA',
         body: 'Jangan LUpa Shalawat dan Dzikir tiada henti',
+        sound: NOTIFICATION_SOUND,
         data: { nasjakNotification: true, kind: 'dzikir' },
       },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 5 * 60, repeats: true, channelId: 'reminders' },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.TIME_INTERVAL, seconds: 5 * 60, repeats: true, channelId: REMINDER_CHANNEL },
     });
   }
 
@@ -229,9 +341,10 @@ export async function rescheduleNotifications(times: PrayerTimes, settings: Noti
         content: {
           title: 'Membaca Shalawat',
           body: 'Yuk, baca shalawat untuk menambah keberkahan dan cinta kepada Rasulullah ﷺ.',
+          sound: NOTIFICATION_SOUND,
           data: { nasjakNotification: true, kind: 'shalawat' },
         },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: reminder.hour, minute: reminder.minute, channelId: 'reminders' },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: reminder.hour, minute: reminder.minute, channelId: REMINDER_CHANNEL },
       });
     }
   }
@@ -247,11 +360,72 @@ export async function rescheduleNotifications(times: PrayerTimes, settings: Noti
     ];
     for (const reminder of reminders) {
       await Notifications.scheduleNotificationAsync({
-        content: { title: reminder.title, body: reminder.body, data: { nasjakNotification: true, kind: 'riyadhoh' } },
-        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: reminder.hour, minute: reminder.minute, channelId: 'reminders' },
+        content: { title: reminder.title, body: reminder.body, sound: NOTIFICATION_SOUND, data: { nasjakNotification: true, kind: 'riyadhoh' } },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: reminder.hour, minute: reminder.minute, channelId: REMINDER_CHANNEL },
       });
     }
   }
+
+  if (settings.debtReminderEnabled) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Ingat Amanah Utang',
+        body: 'Ingat membayar utang sesuai kemampuan dan merespons dengan baik kepada yang kita utangi.',
+        sound: NOTIFICATION_SOUND,
+        data: { nasjakNotification: true, kind: 'debt' },
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: 8, minute: 0, channelId: REMINDER_CHANNEL },
+    });
+  }
+
+  if (settings.taubatReminderEnabled) {
+    for (const reminder of [{ hour: 6, minute: 0 }, { hour: 13, minute: 0 }, { hour: 20, minute: 0 }]) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Shalat Taubat',
+          body: 'Luangkan waktu untuk shalat Taubat dan bermuhasabah.',
+          sound: NOTIFICATION_SOUND,
+          data: { nasjakNotification: true, kind: 'taubat' },
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, ...reminder, channelId: REMINDER_CHANNEL },
+      });
+    }
+  }
+
+  if (settings.dhuhaReminderEnabled) {
+    for (const reminder of [{ hour: 7, minute: 0 }, { hour: 11, minute: 0 }]) {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title: 'Waktu Shalat Dhuha',
+          body: 'Waktu Dhuha berlangsung sekitar pukul 07.00 sampai 11.30. Yuk tunaikan dengan ringan.',
+          sound: NOTIFICATION_SOUND,
+          data: { nasjakNotification: true, kind: 'dhuha' },
+        },
+        trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, ...reminder, channelId: REMINDER_CHANNEL },
+      });
+    }
+  }
+
+  if (settings.tahajudCallEnabled) {
+    await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Tahajud Call',
+        body: 'Ayo Tahajud... Ayo Tahajud... Ayo bangun Tahajud...',
+        sound: NOTIFICATION_SOUND,
+        data: { nasjakNotification: true, kind: 'tahajud' },
+      },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DAILY, hour: 2, minute: 30, channelId: TAHAJUD_CHANNEL },
+    });
+  }
+}
+
+function parseReminderTime(value: string | undefined): [number | null, number | null] {
+  if (!value) return [null, null];
+  const [hour, minute] = value.split(':').map(Number);
+  if (!Number.isInteger(hour) || !Number.isInteger(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+    return [null, null];
+  }
+  return [hour, minute];
 }
 
 export function formatDistance(distanceKm: number): string {

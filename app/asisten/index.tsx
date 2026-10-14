@@ -136,7 +136,11 @@ function AsistenScreen() {
   );
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView
+      style={{ flex: 1 }}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={0}
+    >
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         {/* Header */}
         <LinearGradient colors={['#00B4D8', '#0077B6']} style={styles.header}>
@@ -158,6 +162,7 @@ function AsistenScreen() {
         {/* Messages */}
         <FlatList
           ref={flatListRef}
+          style={styles.messagesList}
           data={messages}
           keyExtractor={(item) => item.id}
           renderItem={renderMessage}
@@ -224,6 +229,7 @@ function AsistenScreen() {
               placeholderTextColor={colors.textMuted}
               value={input}
               onChangeText={setInput}
+              onFocus={scrollToBottom}
               multiline
               maxLength={500}
               onSubmitEditing={handleSend}
@@ -246,6 +252,7 @@ export default memo(AsistenScreen);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  messagesList: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md, gap: Spacing.md },
   headerCenter: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   headerAvatar: { width: 36, height: 36, borderRadius: 18, backgroundColor: 'rgba(255,255,255,0.25)', alignItems: 'center', justifyContent: 'center' },

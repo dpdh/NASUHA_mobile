@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { BlurView } from 'expo-blur';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Animated,
@@ -10,12 +11,55 @@ import {
     Text,
     View,
 } from 'react-native';
+import { router } from 'expo-router';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
 import { RIYADHOH_ITEMS } from '../../constants/data';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
 import { useAppStore } from '../../store/appStore';
 
-interface RiyadhohRow { id: string; name: string; icon: string; done: boolean; rakaat?: number; }
+interface RiyadhohRow { id: string; name: string; icon: string; done: boolean; rakaat?: number; prayer: string; }
+interface ProgressSummary { done: number; target: number; pct: number; activeDays: number; }
+
+const PRAYER_MESSAGES = [
+  'Semoga sahabatku selalu istiqamah beribadah.', 'Semoga Allah menjaga hatimu dalam ketaatan.', 'Semoga ibadahmu selalu diterima Allah SWT.',
+  'Semoga Allah menambah keikhlasan dalam setiap amalmu.', 'Semoga salatmu menjadi cahaya dalam hidupmu.', 'Semoga hatimu selalu dekat dengan Allah.',
+  'Semoga Allah memudahkan langkahmu menuju kebaikan.', 'Semoga sahabatku senantiasa rajin beribadah.', 'Semoga Allah menguatkan imanmu setiap hari.',
+  'Semoga Allah menjaga istiqamahmu hingga akhir hayat.', 'Semoga setiap sujudmu membawa ketenangan.', 'Semoga doamu selalu didengar dan dikabulkan Allah.',
+  'Semoga Allah melapangkan dadamu dalam beribadah.', 'Semoga hari-harimu dipenuhi keberkahan.', 'Semoga Allah menjadikanmu hamba yang dicintai-Nya.',
+  'Semoga Al-Qur’an selalu menjadi penuntun hidupmu.', 'Semoga Allah menjauhkanmu dari rasa malas beribadah.', 'Semoga imanmu selalu tumbuh dan menguat.',
+  'Semoga Allah memberi keteguhan pada hatimu.', 'Semoga amal baikmu menjadi bekal akhirat.', 'Semoga Allah menerima setiap kebaikanmu.',
+  'Semoga Allah memberi nikmat khusyuk dalam salat.', 'Semoga sahabatku selalu mencintai ketaatan.', 'Semoga Allah menjaga lisan dan perilakumu.',
+  'Semoga Allah memberimu hati yang lembut.', 'Semoga Allah menerangi jalan hidupmu.', 'Semoga ibadahmu membawa damai bagi jiwamu.',
+  'Semoga Allah memberkahi setiap waktumu.', 'Semoga Allah mengampuni segala khilafmu.', 'Semoga Allah menjadikanmu pribadi yang sabar.',
+  'Semoga Allah membimbingmu dalam setiap pilihan.', 'Semoga kebaikan selalu mengiringi langkahmu.', 'Semoga Allah melindungimu dari godaan yang melemahkan iman.',
+  'Semoga engkau selalu diberi kesempatan untuk bertaubat.', 'Semoga Allah menguatkanmu saat menghadapi ujian.', 'Semoga hatimu selalu dipenuhi rasa syukur.',
+  'Semoga Allah menjadikanmu teladan dalam kebaikan.', 'Semoga setiap dzikirmu menenangkan hati.', 'Semoga Allah memberimu rezeki yang halal dan berkah.',
+  'Semoga sedekahmu menjadi pemberat amal baikmu.', 'Semoga Allah menjadikanmu hamba yang rendah hati.', 'Semoga Allah mencukupkan segala kebutuhanmu.',
+  'Semoga Allah memperindah akhlakmu.', 'Semoga Allah menjaga keluargamu dalam kebaikan.', 'Semoga Allah mempertemukanmu dengan sahabat-sahabat saleh.',
+  'Semoga Allah memberkahi ilmu yang kamu pelajari.', 'Semoga Allah memudahkanmu mengamalkan ilmu.', 'Semoga hidupmu selalu berada dalam lindungan Allah.',
+  'Semoga Allah mengangkat derajatmu melalui ibadah.', 'Semoga Allah memberi kelapangan dalam setiap urusanmu.', 'Semoga sahabatku menjadi semakin dekat kepada Allah.',
+  'Semoga Allah memberi kekuatan untuk bangun di sepertiga malam.', 'Semoga puasa dan ibadahmu diterima dengan sempurna.', 'Semoga Allah menjadikanmu pribadi yang penuh kasih.',
+  'Semoga Allah memberikanmu hati yang damai.', 'Semoga setiap langkahmu bernilai ibadah.', 'Semoga Allah menjagamu dalam kesendirian maupun keramaian.',
+  'Semoga Allah memudahkanmu untuk selalu berbuat baik.', 'Semoga Allah menjadikanmu pembawa manfaat bagi sesama.', 'Semoga Allah memberi kesabaran dalam setiap proses.',
+  'Semoga Allah mengganti lelahmu dengan pahala yang berlipat.', 'Semoga Allah memberi kemudahan setelah setiap kesulitan.', 'Semoga Allah menjaga niat baikmu.',
+  'Semoga Allah menerima taubatmu dengan penuh kasih sayang.', 'Semoga Allah menuntunmu menuju jalan yang lurus.', 'Semoga Allah melindungimu dari hati yang lalai.',
+  'Semoga Allah memenuhi hidupmu dengan rahmat-Nya.', 'Semoga Allah menjadikanmu ahli dzikir dan ahli syukur.', 'Semoga Allah membalas ketulusanmu dengan kebaikan.',
+  'Semoga Allah memberimu akhir hidup yang husnul khatimah.', 'Semoga Allah menyatukan kita dalam persahabatan karena-Nya.', 'Semoga persahabatan kita selalu membawa kebaikan.',
+  'Semoga Allah menjadikan kita saling menguatkan dalam iman.', 'Semoga Allah menjaga kita dari perbuatan dosa.', 'Semoga Allah memperbanyak amal salehmu.',
+  'Semoga Allah menjadikan ibadahmu sumber kebahagiaan.', 'Semoga Allah melimpahkan kesehatan untuk terus beribadah.', 'Semoga Allah memberi umur yang penuh manfaat.',
+  'Semoga Allah menjadikanmu orang yang dicintai banyak kebaikan.', 'Semoga Allah meluaskan rezeki dan keberkahanmu.', 'Semoga Allah mengisi hatimu dengan cinta kepada-Nya.',
+  'Semoga Allah menjadikanmu kuat dalam menjaga prinsip.', 'Semoga Allah menguatkanmu untuk meninggalkan keburukan.', 'Semoga Allah menenangkanmu saat hati sedang gelisah.',
+  'Semoga Allah membukakan pintu kebaikan untukmu.', 'Semoga Allah mengangkat segala kesedihanmu.', 'Semoga Allah memberimu kebahagiaan dunia dan akhirat.',
+  'Semoga Allah menempatkanmu di antara hamba pilihan-Nya.', 'Semoga Allah mempertemukanmu dengan rahmat dan ampunan-Nya.', 'Semoga Allah menjadikan rumahmu penuh keberkahan.',
+  'Semoga Allah mengabulkan cita-cita baikmu.', 'Semoga Allah membalas semua kebaikanmu.', 'Semoga Allah memberi keteguhan hingga akhir perjalanan.',
+  'Semoga Allah menjadikanmu penghuni surga-Nya.', 'Semoga Allah mempertemukan kita kembali di surga.', 'Semoga Allah menerima setiap niat baikmu.',
+  'Semoga Allah menjaga senyummu dalam ketaatan.', 'Semoga Allah memberimu kehidupan yang penuh ridha-Nya.', 'Semoga Allah selalu membersamai setiap langkahmu.',
+  'Semoga sahabatku bahagia, taat, dan dicintai Allah selamanya.',
+];
+
+const PRAYER_BY_ITEM = Object.fromEntries(
+  RIYADHOH_ITEMS.map((item) => [item.id, PRAYER_MESSAGES[Math.floor(Math.random() * PRAYER_MESSAGES.length)] || PRAYER_MESSAGES[0]]),
+);
 
 const RIYADHOH_DOCS = {
   azzam: {
@@ -122,29 +166,101 @@ function getWeekDates(): string[] {
   });
 }
 
+function getMonthDates(): string[] {
+  const today = new Date();
+  const start = new Date(today.getFullYear(), today.getMonth(), 1);
+  return Array.from({ length: today.getDate() }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    return date.toISOString().split('T')[0];
+  });
+}
+
+function summarizeProgress(dateKeys: string[], logs: Record<string, boolean>): ProgressSummary {
+  let done = 0;
+  let activeDays = 0;
+  for (const dateKey of dateKeys) {
+    let dayDone = 0;
+    for (const item of RIYADHOH_ITEMS) {
+      if (logs[`${item.id}_${dateKey}`]) dayDone++;
+    }
+    done += dayDone;
+    if (dayDone > 0) activeDays++;
+  }
+  const target = dateKeys.length * RIYADHOH_ITEMS.length;
+  return { done, target, pct: target > 0 ? Math.round((done / target) * 100) : 0, activeDays };
+}
+
+function getReward(pct: number): { stars: number; label: string; icon: 'star' | 'star-outline' | 'diamond-outline'; color: string } {
+  if (pct >= 100) return { stars: 0, label: 'Diamond Emas', icon: 'diamond-outline', color: '#D4A853' };
+  if (pct >= 90) return { stars: 5, label: 'Bintang 5', icon: 'star', color: '#F5B700' };
+  if (pct >= 80) return { stars: 4, label: 'Bintang 4', icon: 'star', color: '#F5B700' };
+  if (pct >= 70) return { stars: 3, label: 'Bintang 3', icon: 'star', color: '#F5B700' };
+  if (pct >= 60) return { stars: 2, label: 'Bintang 2', icon: 'star', color: '#F5B700' };
+  if (pct >= 50) return { stars: 1, label: 'Bintang 1', icon: 'star', color: '#F5B700' };
+  return { stars: 0, label: 'Terus Bertumbuh', icon: 'star-outline', color: '#A9B6BC' };
+}
+
 const CheckItem = memo(
-  ({ item, colors, onToggle }: { item: RiyadhohRow; colors: typeof Colors.light; onToggle: (id: string) => void }) => (
-    <Pressable
-      onPress={() => onToggle(item.id)}
-      style={[
-        styles.checkCard,
-        { backgroundColor: item.done ? colors.primary + '18' : colors.card, borderColor: item.done ? colors.primary : colors.border },
-        Shadows.sm,
-      ]}
-    >
-      <Ionicons
-        name={item.done ? 'checkmark-circle' : 'ellipse-outline'}
-        size={26}
-        color={item.done ? colors.primary : colors.textMuted}
-      />
-      <Ionicons name={item.icon as any} size={20} color={item.done ? colors.primary : colors.textSecondary} />
-      <Text style={[styles.checkName, { color: item.done ? colors.primary : colors.text, textDecorationLine: item.done ? 'line-through' : 'none' }]}>
-        {item.name}
-      </Text>
-      {item.rakaat && <Text style={[styles.rakaatLabel, { color: item.done ? colors.primary : colors.gold }]}>{item.rakaat} rakaat</Text>}
-      {item.done && <Text style={[styles.doneLabel, { color: colors.success }]}>Alhamdulillah</Text>}
-    </Pressable>
-  ),
+  ({ item, colors, onToggle }: { item: RiyadhohRow; colors: typeof Colors.light; onToggle: (id: string) => void }) => {
+    const prayerGlow = useRef(new Animated.Value(0)).current;
+
+    useEffect(() => {
+      if (!item.done) {
+        prayerGlow.stopAnimation();
+        prayerGlow.setValue(0);
+        return;
+      }
+
+      const animation = Animated.loop(
+        Animated.sequence([
+          Animated.parallel([
+            Animated.timing(prayerGlow, { toValue: 1, duration: 650, useNativeDriver: true }),
+            Animated.timing(prayerGlow, { toValue: 1, duration: 650, useNativeDriver: true }),
+          ]),
+          Animated.timing(prayerGlow, { toValue: 0, duration: 650, useNativeDriver: true }),
+          Animated.delay(500),
+        ]),
+      );
+      animation.start();
+      return () => animation.stop();
+    }, [item.done, prayerGlow]);
+
+    const prayerOpacity = prayerGlow.interpolate({ inputRange: [0, 1], outputRange: [0.72, 1] });
+    const prayerScale = prayerGlow.interpolate({ inputRange: [0, 1], outputRange: [1, 1.03] });
+
+    return (
+      <Pressable
+        onPress={() => onToggle(item.id)}
+        style={[
+          styles.checkCard,
+          { backgroundColor: item.done ? colors.primary + '18' : colors.card, borderColor: item.done ? colors.primary : colors.border },
+          Shadows.sm,
+        ]}
+      >
+        <Ionicons
+          name={item.done ? 'checkmark-circle' : 'ellipse-outline'}
+          size={26}
+          color={item.done ? colors.primary : colors.textMuted}
+        />
+        <Ionicons name={item.icon as any} size={20} color={item.done ? colors.primary : colors.textSecondary} />
+        <View style={styles.checkNameContainer}>
+          <Text style={[styles.checkName, { color: item.done ? colors.primary : colors.text, textDecorationLine: item.done ? 'line-through' : 'none' }]}>
+            {item.name}
+          </Text>
+          {item.done && (
+            <Animated.View style={[styles.prayerRow, { opacity: prayerOpacity, transform: [{ scale: prayerScale }] }]}>
+              <Ionicons name="sparkles" size={14} color={colors.gold} />
+              <Animated.Text style={[styles.prayerText, { color: '#111827', textShadowColor: colors.gold }]}>{item.prayer}</Animated.Text>
+              <Ionicons name="sparkles" size={14} color={colors.gold} />
+            </Animated.View>
+          )}
+        </View>
+        {item.rakaat && <Text style={[styles.rakaatLabel, { color: item.done ? colors.primary : colors.gold }]}>{item.rakaat} rakaat</Text>}
+        {item.done && <Text style={[styles.doneLabel, { color: colors.success }]}>Alhamdulillah</Text>}
+      </Pressable>
+    );
+  },
 );
 
 function RiyadhohScreen() {
@@ -157,10 +273,13 @@ function RiyadhohScreen() {
   const weekDates = useMemo(() => getWeekDates(), []);
   const [selectedDoc, setSelectedDoc] = useState<keyof typeof RIYADHOH_DOCS>('azzam');
   const [ribbonVisible, setRibbonVisible] = useState(true);
+  const [summaryExpanded, setSummaryExpanded] = useState(true);
+  const [checklistVisible, setChecklistVisible] = useState(false);
   const docFade = useRef(new Animated.Value(1)).current;
   const docSlide = useRef(new Animated.Value(0)).current;
   const fabFloat = useRef(new Animated.Value(0)).current;
   const fabScale = useRef(new Animated.Value(1)).current;
+  const fabPulse = useRef(new Animated.Value(1)).current;
   const bubbleOpacity = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -173,11 +292,19 @@ function RiyadhohScreen() {
 
     Animated.loop(
       Animated.sequence([
+        Animated.timing(fabPulse, { toValue: 1.06, duration: 700, useNativeDriver: true }),
+        Animated.timing(fabPulse, { toValue: 1, duration: 700, useNativeDriver: true }),
+        Animated.delay(900),
+      ]),
+    ).start();
+
+    Animated.loop(
+      Animated.sequence([
         Animated.timing(bubbleOpacity, { toValue: 1, duration: 280, useNativeDriver: true }),
         Animated.timing(bubbleOpacity, { toValue: 0.25, duration: 520, useNativeDriver: true }),
       ]),
     ).start();
-  }, [bubbleOpacity, fabFloat]);
+  }, [bubbleOpacity, fabFloat, fabPulse]);
 
   useEffect(() => {
     Animated.parallel([
@@ -199,7 +326,7 @@ function RiyadhohScreen() {
     const grouped: Record<string, RiyadhohRow[]> = {};
     for (const item of RIYADHOH_ITEMS) {
       const key = `${item.id}_${todayKey}`;
-      const row: RiyadhohRow = { id: item.id, name: item.name, icon: item.icon, done: !!riyadhohLogs[key], rakaat: 'rakaat' in item ? item.rakaat : undefined };
+      const row: RiyadhohRow = { id: item.id, name: item.name, icon: item.icon, done: !!riyadhohLogs[key], rakaat: 'rakaat' in item ? item.rakaat : undefined, prayer: PRAYER_BY_ITEM[item.id] || PRAYER_MESSAGES[0] };
       if (!grouped[item.category]) grouped[item.category] = [];
       grouped[item.category].push(row);
     }
@@ -244,6 +371,10 @@ function RiyadhohScreen() {
     });
   }, [weekDates, riyadhohLogs, todayKey]);
 
+  const weeklySummary = useMemo(() => summarizeProgress(weekDates.filter((date) => date <= todayKey), riyadhohLogs), [weekDates, riyadhohLogs, todayKey]);
+  const monthlySummary = useMemo(() => summarizeProgress(getMonthDates(), riyadhohLogs), [riyadhohLogs]);
+  const reward = useMemo(() => getReward(monthlySummary.pct), [monthlySummary.pct]);
+
   const handleToggle = useCallback(
     (id: string) => {
       toggleRiyadhoh(`${id}_${todayKey}`);
@@ -258,15 +389,17 @@ function RiyadhohScreen() {
     (event: { nativeEvent: { contentOffset: { y: number } } }) => {
       const offsetY = event.nativeEvent.contentOffset.y;
 
-      if (offsetY > 90 && ribbonVisible) {
+      if (offsetY > 90 && summaryExpanded) {
+        setSummaryExpanded(false);
         setRibbonVisible(false);
       }
 
-      if (offsetY < 28 && !ribbonVisible) {
+      if (offsetY < 28 && !summaryExpanded) {
+        setSummaryExpanded(true);
         setRibbonVisible(true);
       }
     },
-    [ribbonVisible],
+    [summaryExpanded],
   );
 
   const renderItem = useCallback(
@@ -289,13 +422,34 @@ function RiyadhohScreen() {
           <Text style={[styles.subtitle, { color: colors.textSecondary }]}>Catat dan pantau perjalanan ibadah harian</Text>
         </View>
 
-        <View style={[styles.scrollHintRow, { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)' }]}>
-          <Ionicons name="chevron-down-circle-outline" size={18} color={colors.primary} />
-          <Text style={[styles.scrollHintText, { color: colors.textSecondary }]}>Ayo cek daftar Riyadhoh-mu di bawah</Text>
-          <Ionicons name="arrow-down" size={16} color={colors.primary} />
-        </View>
+        {!summaryExpanded ? (
+          <Pressable
+            onPress={() => { setSummaryExpanded(true); setRibbonVisible(true); }}
+            style={[styles.compactRibbon, { backgroundColor: colors.card, borderColor: colors.border }]}
+          >
+            <View style={[styles.compactRibbonItem, { backgroundColor: colors.primary + '16' }]}>
+              <Ionicons name="checkmark-circle-outline" size={16} color={colors.primary} />
+              <Text style={[styles.compactRibbonText, { color: colors.primary }]}>Ayo cek</Text>
+            </View>
+            <View style={[styles.compactRibbonItem, { backgroundColor: colors.gold + '18' }]}>
+              <Ionicons name="trending-up-outline" size={16} color={colors.gold} />
+              <Text style={[styles.compactRibbonText, { color: colors.gold }]}>{monthlySummary.pct}% Bertumbuh</Text>
+            </View>
+            <View style={[styles.compactRibbonItem, { backgroundColor: colors.success + '16' }]}>
+              <Ionicons name="calendar-outline" size={16} color={colors.success} />
+              <Text style={[styles.compactRibbonText, { color: colors.success }]}>Rekap Bulan</Text>
+            </View>
+            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+          </Pressable>
+        ) : (
+          <>
+            <View style={[styles.scrollHintRow, { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.12)' }]}>
+              <Ionicons name="chevron-down-circle-outline" size={18} color={colors.primary} />
+              <Text style={[styles.scrollHintText, { color: colors.textSecondary }]}>Ayo cek daftar Riyadhoh-mu di bawah</Text>
+              <Ionicons name="arrow-down" size={16} color={colors.primary} />
+            </View>
 
-        <View style={[styles.ribbonWrapper, { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' }]}>
+            <View style={[styles.ribbonWrapper, { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' }]}>
           {ribbonVisible ? (
             <View style={styles.ribbonMenu}>
               {(Object.keys(RIYADHOH_DOCS) as Array<keyof typeof RIYADHOH_DOCS>).map((key) => {
@@ -320,7 +474,7 @@ function RiyadhohScreen() {
               <Ionicons name="chevron-down" size={16} color="#FFF" />
             </Pressable>
           )}
-        </View>
+          </View>
 
         {ribbonVisible && (
           <Animated.View
@@ -371,6 +525,15 @@ function RiyadhohScreen() {
                 <Text style={[styles.statLabel, { color: colors.textSecondary }]}>dari {progress.total}</Text>
               </View>
             </View>
+            <View style={styles.rewardCol}>
+              <Ionicons name={reward.icon} size={24} color={reward.color} />
+              <View style={styles.starRow}>
+                {[0, 1, 2, 3, 4].map((star) => (
+                  <Ionicons key={star} name={star < reward.stars ? 'star' : 'star-outline'} size={10} color={reward.color} />
+                ))}
+              </View>
+              <Text style={[styles.rewardLabel, { color: reward.color }]}>{reward.label}</Text>
+            </View>
           </View>
 
           {allDone && (
@@ -383,7 +546,11 @@ function RiyadhohScreen() {
         </View>
 
         <View style={[styles.weekCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
-          <Text style={[styles.weekTitle, { color: colors.text }]}>Progress 7 Hari</Text>
+          <View style={styles.periodTitleRow}>
+            <Text style={[styles.weekTitle, { color: colors.text }]}>Rekap Mingguan</Text>
+            <Text style={[styles.periodPct, { color: colors.primary }]}>{weeklySummary.pct}%</Text>
+          </View>
+          <Text style={[styles.periodMeta, { color: colors.textMuted }]}>Persentase pencapaian: {weeklySummary.done} dari {weeklySummary.target} target • {weeklySummary.activeDays} hari aktif</Text>
           <View style={styles.chartRow}>
             {weeklyData.map((day, i) => (
               <View key={day.date} style={styles.chartCol}>
@@ -400,26 +567,48 @@ function RiyadhohScreen() {
             </Text>
           )}
         </View>
+
+        <View style={[styles.monthCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
+          <View style={styles.periodTitleRow}>
+            <View><Text style={[styles.weekTitle, { color: colors.text }]}>Rekap Bulanan</Text><Text style={[styles.periodMeta, { color: colors.textMuted }]}>Persentase pencapaian bulan berjalan</Text></View>
+            <Text style={[styles.monthPct, { color: colors.gold }]}>{monthlySummary.pct}%</Text>
+          </View>
+          <View style={[styles.monthProgressTrack, { backgroundColor: colors.surface }]}><View style={[styles.monthProgressFill, { width: `${monthlySummary.pct}%`, backgroundColor: colors.gold }]} /></View>
+          <View style={styles.monthStatsRow}>
+            <Text style={[styles.monthStat, { color: colors.textSecondary }]}>{monthlySummary.done} selesai</Text>
+            <Text style={[styles.monthStat, { color: colors.textSecondary }]}>{monthlySummary.activeDays} hari aktif</Text>
+            <Text style={[styles.monthStat, { color: reward.color }]}>{reward.label}</Text>
+          </View>
+        </View>
+        <Pressable onPress={() => router.push('/grup-ibadah/' as any)} style={[styles.groupCard, { backgroundColor: colors.primary + '12', borderColor: colors.primary + '40' }]}>
+          <View style={[styles.groupIcon, { backgroundColor: colors.primary }]}><Ionicons name="people" size={22} color="#FFF" /></View>
+          <View style={{ flex: 1 }}><Text style={[styles.groupTitle, { color: colors.text }]}>Grup Ibadah</Text><Text style={[styles.groupDescription, { color: colors.textSecondary }]}>Masuk Tahajud Call, Dhuha Call, atau Taubat Call.</Text></View>
+          <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+        </Pressable>
+          </>
+        )}
       </View>
 
-      <SectionList
-        sections={sections}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        renderSectionHeader={renderSectionHeader}
-        showsVerticalScrollIndicator={false}
-        stickySectionHeadersEnabled={false}
-        removeClippedSubviews
-        onScroll={handleListScroll}
-        scrollEventThrottle={16}
-        ListHeaderComponent={
-          <View>
-            <Text style={[styles.checklistLabel, { color: colors.text }]}>Checklist Ibadah Hari Ini</Text>
-            <Text style={[styles.rawatibHint, { color: colors.textSecondary }]}>Rawatib Muakkadah: 12 rakaat dalam 5 waktu sunnah</Text>
-          </View>
-        }
-        contentContainerStyle={styles.listContent}
-      />
+      {checklistVisible && (
+        <SectionList
+          sections={sections}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          renderSectionHeader={renderSectionHeader}
+          showsVerticalScrollIndicator={false}
+          stickySectionHeadersEnabled={false}
+          removeClippedSubviews
+          onScroll={handleListScroll}
+          scrollEventThrottle={16}
+          ListHeaderComponent={
+            <View>
+              <Text style={[styles.checklistLabel, { color: colors.text }]}>Checklist Ibadah Hari Ini</Text>
+              <Text style={[styles.rawatibHint, { color: colors.textSecondary }]}>Rawatib Muakkadah: 12 rakaat dalam 5 waktu sunnah</Text>
+            </View>
+          }
+          contentContainerStyle={styles.listContent}
+        />
+      )}
 
       <View pointerEvents="box-none" style={styles.fabContainer}>
         <Animated.View
@@ -428,11 +617,14 @@ function RiyadhohScreen() {
             { opacity: bubbleOpacity, transform: [{ translateY: fabFloat }] },
           ]}
         >
-          <Text style={styles.fabBubbleText}>Ikhtiar hari ini</Text>
+          <Text style={styles.fabBubbleText}>Semangat</Text>
         </Animated.View>
 
         <Pressable
           onPress={() => {
+            setChecklistVisible(true);
+            setSummaryExpanded(false);
+            setRibbonVisible(false);
             Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
           }}
           onPressIn={() => {
@@ -453,13 +645,20 @@ function RiyadhohScreen() {
           }}
           style={styles.fabButton}
         >
+          <BlurView
+            pointerEvents="none"
+            intensity={70}
+            tint="light"
+            style={styles.fabBlur}
+          />
           <Animated.View
             style={{
-              transform: [{ translateY: fabFloat }, { scale: fabScale }],
+              transform: [{ translateY: fabFloat }, { scale: fabScale }, { scale: fabPulse }],
             }}
           >
-            <Ionicons name="sparkles" size={22} color="#FFF" />
+            <Ionicons name="warning" size={22} color="#FFF" />
           </Animated.View>
+          <Text style={styles.fabButtonText}>Ayo Mulai</Text>
         </Pressable>
       </View>
     </View>
@@ -486,8 +685,8 @@ const styles = StyleSheet.create({
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
   },
-  title: { fontSize: FontSize.xxl, fontWeight: '800' },
-  subtitle: { fontSize: FontSize.sm, marginTop: 2 },
+  title: { fontSize: FontSize.xxl, fontWeight: '800', textAlign: 'center', transform: [{ translateY: 20 }] },
+  subtitle: { fontSize: FontSize.sm, marginTop: 2, textAlign: 'center', transform: [{ translateY: 20 }] },
   scrollHintRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -507,6 +706,22 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 6 },
   },
   scrollHintText: { fontSize: FontSize.xs, fontWeight: '700', letterSpacing: 0.2 },
+  compactRibbon: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    padding: 6,
+    borderRadius: BorderRadius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    shadowColor: '#000',
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  compactRibbonItem: { flex: 1, minHeight: 32, borderRadius: BorderRadius.md, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 3, paddingHorizontal: 4 },
+  compactRibbonText: { fontSize: 9, fontWeight: '800' },
   ribbonWrapper: {
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.sm,
@@ -568,17 +783,20 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
   },
   shimmer: { height: 3 },
-  progressRow: { flexDirection: 'row', padding: Spacing.md, gap: Spacing.md, alignItems: 'center' },
-  ringContainer: { alignItems: 'center', width: 90 },
-  ringOuter: { width: 64, height: 64, borderRadius: 32, borderWidth: 5, alignItems: 'center', justifyContent: 'center', position: 'relative' },
-  ringFill: { position: 'absolute', width: 64, height: 64, borderRadius: 32, borderWidth: 5, top: -5, left: -5 },
+  progressRow: { flexDirection: 'row', paddingHorizontal: Spacing.md, paddingVertical: 10, gap: Spacing.sm, alignItems: 'center' },
+  ringContainer: { alignItems: 'center', width: 70 },
+  ringOuter: { width: 52, height: 52, borderRadius: 26, borderWidth: 4, alignItems: 'center', justifyContent: 'center', position: 'relative' },
+  ringFill: { position: 'absolute', width: 52, height: 52, borderRadius: 26, borderWidth: 4, top: -4, left: -4 },
   ringInner: { alignItems: 'center', justifyContent: 'center' },
-  ringPct: { fontSize: 18, fontWeight: '800' },
-  ringLabel: { fontSize: FontSize.xs, marginTop: 4 },
-  statsCol: { flex: 1, justifyContent: 'center', gap: 10 },
+  ringPct: { fontSize: 14, fontWeight: '800' },
+  ringLabel: { fontSize: 9, marginTop: 3 },
+  statsCol: { flex: 1, justifyContent: 'center', gap: 5 },
   statRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  statVal: { fontSize: 22, fontWeight: '800' },
-  statLabel: { fontSize: FontSize.sm },
+  statVal: { fontSize: 18, fontWeight: '800' },
+  statLabel: { fontSize: FontSize.xs },
+  rewardCol: { minWidth: 62, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  starRow: { flexDirection: 'row', gap: 1 },
+  rewardLabel: { fontSize: 9, fontWeight: '800', textAlign: 'center' },
   completeBanner: { marginHorizontal: Spacing.md, marginBottom: Spacing.md, padding: Spacing.md, borderRadius: BorderRadius.md },
   completeText: { fontSize: FontSize.sm, fontWeight: '600', textAlign: 'center', lineHeight: 20 },
   weekCard: {
@@ -592,55 +810,83 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     shadowOffset: { width: 0, height: 6 },
   },
-  weekTitle: { fontSize: FontSize.lg, fontWeight: '700', marginBottom: Spacing.sm },
+  periodTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  weekTitle: { fontSize: FontSize.md, fontWeight: '800' },
+  periodPct: { fontSize: FontSize.xl, fontWeight: '900' },
+  periodMeta: { fontSize: FontSize.xs, marginTop: 3 },
   chartRow: { flexDirection: 'row', height: 62, gap: 4, alignItems: 'flex-end' },
   chartCol: { flex: 1, alignItems: 'center', justifyContent: 'flex-end' },
   chartBarBg: { width: '78%', height: 44, borderRadius: 8, overflow: 'hidden', justifyContent: 'flex-end', backgroundColor: 'rgba(255,255,255,0.08)' },
   chartBarFill: { width: '100%', borderRadius: 8, minHeight: 12 },
   chartDay: { fontSize: FontSize.xs, marginTop: 4 },
   streakMsg: { fontSize: FontSize.sm, fontWeight: '600', textAlign: 'center', marginTop: Spacing.sm },
+  monthCard: { marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.md, borderRadius: BorderRadius.lg, borderWidth: StyleSheet.hairlineWidth },
+  monthPct: { fontSize: FontSize.xxl, fontWeight: '900' },
+  monthProgressTrack: { height: 7, borderRadius: 4, overflow: 'hidden', marginTop: Spacing.md },
+  monthProgressFill: { height: 7, borderRadius: 4 },
+  monthStatsRow: { flexDirection: 'row', justifyContent: 'space-between', marginTop: Spacing.sm, gap: Spacing.sm },
+  monthStat: { fontSize: FontSize.xs, fontWeight: '700' },
+  groupCard: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.md, padding: Spacing.md, borderRadius: BorderRadius.lg, borderWidth: 1 },
+  groupIcon: { width: 42, height: 42, borderRadius: 21, alignItems: 'center', justifyContent: 'center' },
+  groupTitle: { fontSize: FontSize.md, fontWeight: '800' },
+  groupDescription: { fontSize: FontSize.xs, lineHeight: 17, marginTop: 2 },
   checklistLabel: { fontSize: FontSize.lg, fontWeight: '700', marginHorizontal: Spacing.lg, marginTop: Spacing.lg, marginBottom: Spacing.sm },
   listContent: { paddingTop: Spacing.md, paddingBottom: 120 },
   fabContainer: {
     position: 'absolute',
     right: Spacing.lg,
-    bottom: 22,
+    top: '50%',
     alignItems: 'flex-end',
+    transform: [{ translateY: -26 }],
   },
   fabBubbleWrap: {
     marginBottom: 10,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
     borderRadius: BorderRadius.md,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.32)',
-    backdropFilter: 'blur(10px)',
+    backgroundColor: '#B45309',
+    borderWidth: 1.5,
+    borderColor: '#FBBF24',
+    shadowColor: '#78350F',
+    shadowOpacity: 0.28,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+    elevation: 5,
   },
   fabBubbleText: {
     color: '#FFF',
-    fontSize: FontSize.xs,
-    fontWeight: '700',
-    letterSpacing: 0.2,
+    fontSize: FontSize.sm,
+    fontWeight: '800',
+    letterSpacing: 0.1,
   },
   fabButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    position: 'relative',
+    minWidth: 164,
+    height: 52,
+    paddingHorizontal: 16,
+    borderRadius: 26,
+    flexDirection: 'row',
+    gap: 8,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: 'rgba(255,255,255,0.18)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.32)',
-    shadowColor: '#000',
-    shadowOpacity: 0.18,
-    shadowRadius: 14,
-    shadowOffset: { width: 0, height: 8 },
-    elevation: 8,
+    backgroundColor: 'rgba(15, 118, 110, 0.62)',
+    borderWidth: 1.5,
+    borderColor: 'rgba(255, 255, 255, 0.72)',
+    shadowColor: '#075E59',
+    shadowOpacity: 0.32,
+    shadowRadius: 18,
+    shadowOffset: { width: 0, height: 10 },
+    elevation: 12,
+    overflow: 'hidden',
   },
+  fabBlur: { ...StyleSheet.absoluteFill, borderRadius: 26 },
+  fabButtonText: { color: '#FFF', fontSize: FontSize.md, fontWeight: '900', letterSpacing: 0.1 },
   sectionTitle: { fontSize: FontSize.sm, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 1, marginTop: Spacing.sm, marginBottom: Spacing.sm, marginHorizontal: Spacing.lg },
   checkCard: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, paddingHorizontal: Spacing.md, borderRadius: BorderRadius.lg, borderWidth: 1, marginBottom: Spacing.sm, marginHorizontal: Spacing.lg, gap: 10 },
-  checkName: { fontSize: 15, fontWeight: '600', flex: 1, lineHeight: 20 },
+  checkNameContainer: { flex: 1 },
+  checkName: { fontSize: 15, fontWeight: '600', lineHeight: 20 },
+  prayerRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
+  prayerText: { flex: 1, fontSize: 11, fontWeight: '600', lineHeight: 16, textShadowRadius: 8, textShadowOffset: { width: 0, height: 0 } },
   rakaatLabel: { fontSize: 10, fontWeight: '800', marginLeft: 2 },
   rawatibHint: { fontSize: FontSize.xs, marginHorizontal: Spacing.lg, marginBottom: Spacing.sm },
   doneLabel: { fontSize: FontSize.xs, fontWeight: '600' },

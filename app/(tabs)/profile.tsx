@@ -1,22 +1,22 @@
-import React, { memo, useCallback, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  ScrollView,
-  Pressable,
-  Image,
-  Alert,
-  Modal,
-  Platform,
-} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useAppStore } from '../../store/appStore';
-import { Spacing, BorderRadius, FontSize, Shadows, getColors } from '../../constants/theme';
+import React, { memo, useCallback, useState } from 'react';
+import {
+    Alert,
+    Image,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
+} from 'react-native';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
+import { BorderRadius, FontSize, Shadows, Spacing, getColors } from '../../constants/theme';
+import { useAppStore } from '../../store/appStore';
 
-const LOGO_BADGE = require('../../assets/images/logo-icon.png');
+const LOGO_BADGE = require('../../assets/images/LOGO NASUHA pt.png');
 
 interface MenuItem {
   icon: React.ComponentProps<typeof Ionicons>['name'];
@@ -50,7 +50,7 @@ function ProfileScreen() {
   const bookmarkedHadiths = useAppStore((s) => s.bookmarkedHadiths);
   const colors = getColors(colorScheme)[theme];
 
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const isAdminAccess = user?.role === 'super_admin' || user?.role === 'admin';
   const isGuest = !user;
   const totalBookmarks = bookmarkedAyahs.length + bookmarkedHadiths.length;
   const [showAbout, setShowAbout] = useState(false);
@@ -64,12 +64,12 @@ function ProfileScreen() {
   }, []);
 
   const menuItems: MenuItem[] = [
-    ...(isAdmin
+    ...(isAdminAccess
       ? [
           {
             icon: 'shield-checkmark' as const,
             label: 'CMS Admin Panel',
-            sub: `${members.length} user · Kelola User & Lapak`,
+            sub: `${members.length} user · Khusus Admin & Super Admin`,
             color: '#FF6B6B',
             action: () => router.push('/admin/' as any),
           },
@@ -125,7 +125,7 @@ function ProfileScreen() {
           {user?.avatar ? (
             <Image source={{ uri: user.avatar }} style={styles.avatarImage} />
           ) : (
-            <View style={[styles.avatarFallback, { backgroundColor: isAdmin ? '#FF6B6B' : colors.primary }]}>
+            <View style={[styles.avatarFallback, { backgroundColor: isAdminAccess ? '#FF6B6B' : colors.primary }]}>
               <Text style={styles.avatarInitials}>{initials}</Text>
             </View>
           )}

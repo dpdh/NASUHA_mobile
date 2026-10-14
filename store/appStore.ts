@@ -19,7 +19,7 @@ interface AppActions {
   // Auth
   login: (identifier: string, password: string, name?: string) => Promise<{ success: boolean; error?: string }>;
   register: (name: string, email: string, password: string, phone?: string) => Promise<{ success: boolean; error?: string }>;
-  loginWithGoogle: (googleUser: { googleId: string; email: string; name: string; avatar?: string; membershipType?: User['membershipType']; membershipFeatures?: Record<string, boolean> }) => void;
+  loginWithGoogle: (googleUser: { googleId: string; email: string; name: string; avatar?: string; backendToken?: string; membershipType?: User['membershipType']; membershipFeatures?: Record<string, boolean> }) => void;
   logout: () => void;
   // Admin
   updateMemberRole: (userId: string, role: User['role']) => void;
@@ -105,6 +105,56 @@ const DEFAULT_MEMBERSHIP_PLANS: MembershipPlan[] = [
   },
 ];
 
+const DEFAULT_TSN_WEEKEND_EVENTS: Event[] = [
+  {
+    id: 26092601,
+    title: 'TSN Jakarta · Weekend September',
+    type: 'TSN',
+    date: '2026-09-26',
+    time: '08:00 - 12:00',
+    location: 'Jakarta Pusat',
+    description: 'Temu Solusi NASUHA untuk keluarga Jakarta: konsultasi, edukasi, dan langkah bebas utang.',
+    quota: 120,
+    registered: 0,
+    status: 'published',
+    createdAt: '2026-09-23T00:00:00.000Z',
+    updatedAt: '2026-09-23T00:00:00.000Z',
+  },
+  {
+    id: 26092602,
+    title: 'TSN Deborami · Weekend September',
+    type: 'TSN',
+    date: '2026-09-26',
+    time: '13:00 - 17:00',
+    location: 'Deborami Community Hall',
+    description: 'Sesi Temu Solusi NASUHA bersama komunitas Deborami untuk membangun kebiasaan finansial yang sehat.',
+    quota: 100,
+    registered: 0,
+    status: 'published',
+    createdAt: '2026-09-23T00:00:00.000Z',
+    updatedAt: '2026-09-23T00:00:00.000Z',
+  },
+  {
+    id: 26092603,
+    title: 'TSN Tangerang · Weekend September',
+    type: 'TSN',
+    date: '2026-09-27',
+    time: '08:00 - 12:00',
+    location: 'Tangerang Selatan',
+    description: 'Agenda TSN akhir pekan untuk sahabat Tangerang: konsultasi solusi utang dan pendampingan komunitas.',
+    quota: 100,
+    registered: 0,
+    status: 'published',
+    createdAt: '2026-09-23T00:00:00.000Z',
+    updatedAt: '2026-09-23T00:00:00.000Z',
+  },
+];
+
+function mergeDefaultEvents(events: Event[]): Event[] {
+  const existingIds = new Set(events.map((event) => event.id));
+  return [...events, ...DEFAULT_TSN_WEEKEND_EVENTS.filter((event) => !existingIds.has(event.id))];
+}
+
 export const useAppStore = create<AppState & AppActions>((set, get) => ({
   theme: 'light',
   colorScheme: 'mist' as ColorScheme,
@@ -131,6 +181,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     dzikirReminderEnabled: true,
     shalawatReminderEnabled: true,
     spiritualReminderEnabled: true,
+    debtReminderEnabled: true,
+    taubatReminderEnabled: true,
+    dhuhaReminderEnabled: true,
+    tahajudCallEnabled: true,
     riyadhohHour: 20,
     riyadhohMinute: 0,
   },
@@ -212,8 +266,8 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     if (account.password !== password) return { success: false, error: 'Password salah' };
 
     const trimEmail = account.email.toLowerCase();
-    const isPrivileged = SUPER_ADMIN_EMAILS.includes(trimEmail) || ADMIN_EMAILS.includes(trimEmail);
     const role = getRoleForEmail(trimEmail);
+    const isManagedRole = role === 'super_admin' || role === 'admin' || role === 'sahabat';
 
     const user: User = {
       id: trimEmail.replace(/[^a-z0-9]/g, '_'),
@@ -223,7 +277,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       role,
       joinDate: new Date().toISOString(),
       isActive: true,
-      membershipType: 'free',
+      membershipType: role === 'sahabat' ? 'sahabat' : 'free',
     };
 
     // Add to members if not already there
@@ -235,9 +289,9 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       if (idx >= 0) {
         user.name = members[idx].name || account.name;
         user.phone = members[idx].phone || account.phone;
-        user.role = isPrivileged ? role : members[idx].role;
+        user.role = isManagedRole ? role : members[idx].role;
         user.joinDate = members[idx].joinDate;
-        user.membershipType = members[idx].membershipType || 'free';
+        user.membershipType = role === 'sahabat' ? 'sahabat' : members[idx].membershipType || 'free';
         user.membershipFeatures = members[idx].membershipFeatures;
       }
     }
@@ -282,7 +336,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     accounts.push({ email: trimEmail, password, name: trimName, phone: trimPhone, createdAt: newUser.joinDate });
     await saveAccounts(accounts);
 
-    set({ user: newUser, members });
+    set({ user: newUser, members, isOnboarded: true });
     persist(get());
     return { success: true };
   },
@@ -295,12 +349,13 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
     const existing = members.find((m) => m.email === trimEmail);
 
     const user: User = existing
-      ? { ...existing, avatar: googleUser.avatar || existing.avatar, membershipType: googleUser.membershipType || existing.membershipType, membershipFeatures: googleUser.membershipFeatures || existing.membershipFeatures, role: isPrivileged ? assignedRole : existing.role }
+      ? { ...existing, avatar: googleUser.avatar || existing.avatar, backendToken: googleUser.backendToken || existing.backendToken, membershipType: googleUser.membershipType || existing.membershipType, membershipFeatures: googleUser.membershipFeatures || existing.membershipFeatures, role: isPrivileged ? assignedRole : existing.role }
       : {
           id: trimEmail.replace(/[^a-z0-9]/g, '_'),
           email: trimEmail,
           name: googleUser.name,
           googleId: googleUser.googleId,
+          backendToken: googleUser.backendToken,
           authProvider: 'google',
           avatar: googleUser.avatar,
           membershipType: googleUser.membershipType || 'free',
@@ -310,7 +365,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
           isActive: true,
         };
 
-    const normalizedUser = { ...user, googleId: googleUser.googleId || user.googleId, authProvider: 'google' as const, membershipType: googleUser.membershipType || user.membershipType || 'free', membershipFeatures: googleUser.membershipFeatures || user.membershipFeatures };
+    const normalizedUser = { ...user, googleId: googleUser.googleId || user.googleId, backendToken: googleUser.backendToken || user.backendToken, authProvider: 'google' as const, membershipType: googleUser.membershipType || user.membershipType || 'free', membershipFeatures: googleUser.membershipFeatures || user.membershipFeatures };
     if (!existing) members.push(normalizedUser);
     else {
       const idx = members.findIndex((m) => m.email === trimEmail);
@@ -554,7 +609,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
           theme: data.theme || 'light',
           colorScheme: data.colorScheme || 'mist',
           user: data.user || null,
-          isOnboarded: data.isOnboarded || false,
+          isOnboarded: Boolean(data.user || data.isOnboarded),
           riyadhohLogs: data.riyadhohLogs || {},
           bookmarkedAyahs: data.bookmarkedAyahs || [],
           bookmarkedHadiths: data.bookmarkedHadiths || [],
@@ -563,7 +618,7 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
           testimonials: data.testimonials || [],
           questions: data.questions || [],
           lastReadAyahs: data.lastReadAyahs || {},
-          events: data.events || [],
+          events: mergeDefaultEvents(data.events || []),
           eventRegistrations: data.eventRegistrations || [],
           quranFontSize: data.quranFontSize || 16,
           hadithFontSize: data.hadithFontSize || 16,
@@ -576,6 +631,10 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
             dzikirReminderEnabled: true,
             shalawatReminderEnabled: true,
             spiritualReminderEnabled: true,
+            debtReminderEnabled: true,
+            taubatReminderEnabled: true,
+            dhuhaReminderEnabled: true,
+            tahajudCallEnabled: true,
             riyadhohHour: 20,
             riyadhohMinute: 0,
             ...(data.notificationSettings || {}),
