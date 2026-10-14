@@ -1,37 +1,36 @@
+export type UserRole = 'super_admin' | 'admin' | 'ustadz' | 'sahabat' | 'calon_sahabat';
+export type MembershipType = 'free' | 'membership' | 'sahabat';
+export type FeatureId = 'quran' | 'hadis' | 'motivasi' | 'riyadhoh' | 'event' | 'lapak' | 'tanya' | 'social' | 'community';
+
 export interface User {
   id: string;
   email: string;
   name: string;
   googleId?: string;
   authProvider?: 'password' | 'google';
-  phone?: string;
-  avatar?: string;
-  role: 'super_admin' | 'admin' | 'sahabat' | 'calon_sahabat';
+  phone?: string | null;
+  avatar?: string | null;
+  role: UserRole;
+  roles?: UserRole[];
   joinDate: string;
   isActive: boolean;
+  status?: 'pending' | 'active' | 'suspended';
+  memberNumber?: string | null;
+  mustChangePassword?: boolean;
   // Extended profile
-  bio?: string;
-  city?: string;
-  address?: string;
-  gender?: 'laki-laki' | 'perempuan';
-  birthDate?: string;
-  occupation?: string;
-  nasuhaRegion?: string;
-  lbuBatch?: number;
+  bio?: string | null;
+  city?: string | null;
+  address?: string | null;
+  gender?: 'laki-laki' | 'perempuan' | null;
+  birthDate?: string | null;
+  occupation?: string | null;
+  /** id korda (slug), mis. "jakarta" */
+  nasuhaRegion?: string | null;
+  lbuBatch?: number | null;
   // Membership
-  membershipType?: 'free' | 'membership' | 'sahabat';
+  membershipType?: MembershipType;
   membershipFeatures?: Record<string, boolean>;
-}
-
-export interface Profile {
-  userId: string;
-  bio?: string;
-  city?: string;
-  region: string;
-  joinedNasuhaDate?: string;
-  lbuParticipant: boolean;
-  tsnAttendance: number;
-  riyadhohStreak: number;
+  featureOverrides?: Record<string, boolean>;
 }
 
 export interface QuranSurah {
@@ -75,14 +74,13 @@ export interface RiyadhohItem {
   name: string;
   category: string;
   icon: string;
+  rakaat?: number | null;
 }
 
-export interface RiyadhohLog {
+export interface RiyadhohDoc {
   id: string;
-  itemId: string;
-  date: string;
-  completed: boolean;
-  notes?: string;
+  title: string;
+  body: string;
 }
 
 export interface PrayerLocation {
@@ -105,25 +103,37 @@ export interface NotificationSettings {
 }
 
 export interface Motivasi {
-  id: number;
+  id: number | string;
   text: string;
   author: string;
   category: string;
 }
 
 export interface Testimonial {
-  id: number;
+  id: string;
+  userId?: string | null;
+  user?: { id: string; name: string; avatar: string | null } | null;
   name: string;
   avatar: string | null;
-  korda?: string;
+  korda?: string | null;
+  kordaLabel?: string | null;
   text: string;
   program: string;
   rating: number;
+  photo?: string | null;
+  status?: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string | null;
   date: string;
+  createdAt?: string;
+}
+
+export interface EventRegistrationRef {
+  id: string;
+  status: 'registered' | 'confirmed';
 }
 
 export interface Event {
-  id: number;
+  id: string;
   title: string;
   type: string;
   date: string;
@@ -132,36 +142,20 @@ export interface Event {
   description: string;
   quota: number;
   registered: number;
+  remaining?: number;
+  isFull?: boolean;
   status?: 'draft' | 'published' | 'cancelled';
-  createdBy?: string;
+  createdBy?: string | null;
   createdAt?: string;
   updatedAt?: string;
-  image?: string;
-  contactWhatsapp?: string;
-}
-
-export interface TSNSession {
-  id: number;
-  title: string;
-  date: string;
-  location: string;
-  speaker: string;
-  topic: string;
-  attendees: number;
-}
-
-export interface LBUProgram {
-  id: number;
-  batchNumber: number;
-  city: string;
-  date: string;
-  totalPeserta: number;
-  totalLunas: number;
-  status: 'upcoming' | 'ongoing' | 'completed';
+  image?: string | null;
+  contactWhatsapp?: string | null;
+  myRegistration?: EventRegistrationRef | null;
 }
 
 export interface LapakProduct {
   id: string;
+  seller?: { id: string; name: string; city: string | null; avatar: string | null };
   sellerId: string;
   sellerName: string;
   sellerCity: string;
@@ -181,50 +175,54 @@ export interface LapakProduct {
   };
   tags: string[];
   status: 'pending' | 'approved' | 'rejected';
+  rejectionReason?: string | null;
   createdAt: string;
   updatedAt: string;
   rating: number;
   sold: number;
 }
 
-export interface UserTestimonial {
-  id: string;
-  userId: string;
-  userName: string;
-  userAvatar?: string;
-  program: 'LBU' | 'TSN' | 'Riyadhoh' | 'Kajian' | 'Lainnya';
-  rating: number;
-  text: string;
-  photo?: string;
-  createdAt: string;
+export interface LapakProductInput {
+  name: string;
+  category: string;
+  description: string;
+  price: number;
+  photos: string[];
+  sellerWhatsapp: string;
+  specs: LapakProduct['specs'];
+  tags: string[];
 }
 
 export interface Question {
   id: string;
-  userId: string;
+  userId: string | null;
   userName: string;
-  userAvatar?: string;
-  category: 'Keuangan Syariah' | 'Hijrah' | 'Fiqh' | 'Bisnis' | 'Umum';
+  userAvatar?: string | null;
+  isMine?: boolean;
+  category: string;
   title: string;
   body: string;
-  answers: Answer[];
+  isAnonymous?: boolean;
+  status?: 'open' | 'closed';
+  answersCount: number;
+  hasOfficialAnswer?: boolean;
+  answers?: Answer[];
   createdAt: string;
 }
 
 export interface Answer {
   id: string;
   questionId: string;
-  userId: string;
+  userId: string | null;
   userName: string;
-  userAvatar?: string;
+  userAvatar?: string | null;
+  isOfficial?: boolean;
   body: string;
   createdAt: string;
 }
 
 export type ThemeMode = 'light' | 'dark';
 export type ColorScheme = 'mist' | 'ocean' | 'emerald' | 'royal' | 'sunset' | 'rose';
-
-export type MembershipType = 'free' | 'membership' | 'sahabat';
 
 export interface MembershipFeature {
   id: string;
@@ -246,16 +244,178 @@ export interface MembershipPlan {
 
 export interface EventRegistration {
   id: string;
-  eventId: number;
-  userId: string;
+  eventId: string;
+  event?: { id: string; title: string; type: string; date: string; time: string; location: string; status?: string };
+  userId: string | null;
   userName: string;
   userEmail: string;
   userPhone: string;
-  userCity?: string;
-  korda?: string;
-  notes?: string;
+  userCity?: string | null;
+  korda?: string | null;
+  notes?: string | null;
   status: 'registered' | 'confirmed' | 'cancelled';
+  attended?: boolean;
   createdAt: string;
+}
+
+export interface Korda {
+  id: string;
+  label: string;
+  region: string;
+  ketua?: string;
+  phone?: string;
+  icon?: string;
+  sortOrder?: number;
+}
+
+export interface References {
+  kordas: Korda[];
+  eventTypes: { id: string; label: string; color: string | null }[];
+  lapakCategories: { id: string; label: string; icon: string | null }[];
+  questionCategories: string[];
+  testimonialPrograms: string[];
+  doaCategories: string[];
+  infaqNominals: number[];
+}
+
+export interface MotivasiCategory {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  icon: string;
+  color: string;
+  gradient: string[];
+  quoteTags?: string[];
+  articlesCount?: number;
+}
+
+export interface ArticleSummary {
+  id: string;
+  legacyId?: number | null;
+  section?: 'motivasi' | 'artikel';
+  categoryId: string | null;
+  title: string;
+  summary: string;
+  author: string;
+  readTime: string;
+  icon: string;
+  coverImage?: string | null;
+  publishedAt?: string;
+}
+
+export interface Article extends ArticleSummary {
+  content: string;
+  category?: MotivasiCategory | null;
+}
+
+export interface Doa {
+  id: string;
+  category: string;
+  title: string;
+  arabic?: string | null;
+  latin?: string | null;
+  meaning: string;
+  source?: string | null;
+  icon: string;
+  debt?: boolean;
+}
+
+export interface Program {
+  id: string;
+  group: 'utama' | 'kegiatan';
+  title: string;
+  subtitle: string;
+  description: string;
+  icon: string;
+  gradient: string[];
+  data: Record<string, any>;
+  relatedEventType?: string | null;
+}
+
+export interface InfaqProgram {
+  id: string;
+  title: string;
+  shortLabel: string;
+  description: string;
+  icon: string;
+  gradient: string[];
+  bankName: string;
+  bankAccount: string;
+  bankHolder: string;
+  qrisImage?: string | null;
+  whatsappConfirm: string;
+}
+
+export interface SocialLink {
+  id: string;
+  name: string;
+  icon: string;
+  color: string;
+  gradient: string[];
+  handle: string;
+  url: string;
+  deepLink?: string | null;
+  cta: string;
+}
+
+export interface SocialPost {
+  id: string;
+  platform: 'instagram' | 'tiktok' | 'youtube';
+  type: string;
+  title: string;
+  description: string;
+  thumbnail?: string | null;
+  url: string;
+  deepLink?: string | null;
+  publishedAt: string;
+}
+
+export interface AppNotification {
+  id: string;
+  type: 'event' | 'riyadhoh' | 'motivasi' | 'lbu' | 'lapak' | 'tanya' | 'info';
+  title: string;
+  body: string;
+  icon?: string | null;
+  data?: { route?: string; [key: string]: unknown };
+  read: boolean;
+  createdAt: string;
+}
+
+export interface HomeData {
+  quoteOfTheDay: Motivasi | null;
+  upcomingEvents: Event[];
+  featuredTestimonial: Testimonial | null;
+  socialPosts: SocialPost[];
+  riyadhohToday: { completed: number; total: number; streak: number } | null;
+  unreadNotifications: number;
+}
+
+export interface MeStats {
+  riyadhoh: { currentStreak: number; longestStreak: number; totalCompleted: number; todayCompleted: number; todayTotal: number };
+  tsnAttendance: number;
+  eventsJoined: number;
+  bookmarks: { ayah: number; hadith: number };
+  lapak: { approved: number; pending: number; rejected: number };
+  questions: number;
+  testimonials: number;
+}
+
+export interface AppConfig {
+  app: {
+    name: string;
+    tagline: string;
+    latestVersion: string;
+    minSupportedVersion: string;
+    storeUrl: { android: string | null; ios: string | null };
+    releaseDate: string;
+    author: string;
+    organization: string;
+    website: string;
+    features: string[];
+  };
+  contact: { whatsapp: string; email: string; instagram: string };
+  membershipPlans: MembershipPlan[];
 }
 
 export interface AppState {
@@ -263,19 +423,17 @@ export interface AppState {
   colorScheme: ColorScheme;
   user: User | null;
   isOnboarded: boolean;
+  /** key: `${itemId}_${YYYY-MM-DD}` (tanggal WIB) */
   riyadhohLogs: Record<string, boolean>;
+  /** "surahId:ayah" */
   bookmarkedAyahs: string[];
-  bookmarkedHadiths: number[];
-  members: User[];
-  products: LapakProduct[];
-  testimonials: UserTestimonial[];
-  questions: Question[];
+  /** "slug:nomor", mis. "bukhari:1" */
+  bookmarkedHadiths: string[];
   lastReadAyahs: Record<string, number>;
-  events: Event[];
-  eventRegistrations: EventRegistration[];
   quranFontSize: number;
   hadithFontSize: number;
   membershipPlans: MembershipPlan[];
+  references: References | null;
   notificationSettings: NotificationSettings;
   prayerLocation: PrayerLocation | null;
 }

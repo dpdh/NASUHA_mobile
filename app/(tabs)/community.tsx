@@ -1,4 +1,4 @@
-import React, { memo, useCallback } from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -12,8 +12,11 @@ import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
-import { SAMPLE_EVENTS, TSN_INFO, LBU_INFO, SAMPLE_TESTIMONIALS } from '../../constants/data';
+import { TSN_INFO, LBU_INFO, SAMPLE_TESTIMONIALS } from '../../constants/data';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi, eventApi, testimonialApi } from '../../services/nasjakApi';
+import type { Testimonial } from '../../types';
 
 const LOGO_BADGE = require('../../assets/images/logo-badge.png');
 const LOGO_KAWANATA = require('../../assets/images/logo-kawanata.png');
@@ -22,6 +25,8 @@ interface CommunitySection {
   id: string;
   type: 'tsn' | 'lbu' | 'testimonial' | 'event';
 }
+
+const FALLBACK_TESTIMONIALS: Testimonial[] = SAMPLE_TESTIMONIALS.slice(0, 5).map((item) => ({ ...item, id: String(item.id) }));
 
 const SECTIONS: CommunitySection[] = [
   { id: 'tsn', type: 'tsn' },
@@ -34,6 +39,31 @@ function CommunityScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
 
+  const { data: tsnProgram } = useApiQuery(() => contentApi.program('tsn'), [], { cacheKey: 'program_tsn' });
+  const { data: lbuProgram } = useApiQuery(() => contentApi.program('lbu'), [], { cacheKey: 'program_lbu' });
+  const { data: testimonials = FALLBACK_TESTIMONIALS } = useApiQuery(
+    () => testimonialApi.list({ perPage: 5 }).then((result) => result.data),
+    [],
+    { cacheKey: 'community_testimonials', fallback: FALLBACK_TESTIMONIALS },
+  );
+  const { data: events = [] } = useApiQuery(
+    () => eventApi.list({ perPage: 2 }).then((result) => result.data),
+    [],
+    { cacheKey: 'community_events', refetchOnFocus: true },
+  );
+
+  const tsnInfo = useMemo(() => ({
+    title: tsnProgram?.title || TSN_INFO.title,
+    subtitle: tsnProgram?.subtitle || TSN_INFO.subtitle,
+    description: tsnProgram?.description || TSN_INFO.description,
+    benefits: (tsnProgram?.data?.benefits as string[] | undefined) ?? TSN_INFO.benefits,
+  }), [tsnProgram]);
+  const lbuInfo = useMemo(() => ({
+    title: lbuProgram?.title || LBU_INFO.title,
+    subtitle: lbuProgram?.subtitle || LBU_INFO.subtitle,
+    stats: { ...LBU_INFO.stats, ...((lbuProgram?.data?.stats as Partial<typeof LBU_INFO.stats>) ?? {}) },
+  }), [lbuProgram]);
+
   const renderItem = useCallback(
     ({ item }: { item: CommunitySection }) => {
       switch (item.type) {
@@ -44,14 +74,14 @@ function CommunityScreen() {
               <View style={styles.cardRow}>
                 <Image source={LOGO_KAWANATA} style={styles.cardLogo} resizeMode="contain" />
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.cardTitle, { color: colors.text }]}>{TSN_INFO.title}</Text>
-                  <Text style={[styles.cardSub, { color: colors.textSecondary }]}>{TSN_INFO.subtitle}</Text>
+                  <Text style={[styles.cardTitle, { color: colors.text }]}>{tsnInfo.title}</Text>
+                  <Text style={[styles.cardSub, { color: colors.textSecondary }]}>{tsnInfo.subtitle}</Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color={colors.textMuted} />
               </View>
-              <Text style={[styles.cardDesc, { color: colors.textSecondary }]} numberOfLines={2}>{TSN_INFO.description}</Text>
+              <Text style={[styles.cardDesc, { color: colors.textSecondary }]} numberOfLines={2}>{tsnInfo.description}</Text>
               <View style={styles.benefitRow}>
-                {TSN_INFO.benefits.slice(0, 2).map((b, i) => (
+                {tsnInfo.benefits.slice(0, 2).map((b, i) => (
                   <View key={i} style={[styles.benefitChip, { backgroundColor: colors.surface }]}>
                     <Ionicons name="checkmark" size={12} color={colors.success} />
                     <Text style={[styles.benefitText, { color: colors.textSecondary }]} numberOfLines={1}>{b}</Text>
@@ -66,21 +96,21 @@ function CommunityScreen() {
               <LinearGradient colors={[colors.gold, colors.goldDeep]} style={styles.lbuBanner} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
                 <Image source={LOGO_BADGE} style={styles.lbuBadge} resizeMode="contain" />
                 <View>
-                  <Text style={styles.lbuTitle}>{LBU_INFO.title}</Text>
-                  <Text style={styles.lbuSub}>{LBU_INFO.subtitle}</Text>
+                  <Text style={styles.lbuTitle}>{lbuInfo.title}</Text>
+                  <Text style={styles.lbuSub}>{lbuInfo.subtitle}</Text>
                 </View>
               </LinearGradient>
               <View style={styles.statsGrid}>
                 <View style={styles.statItem}>
-                  <Text style={[styles.statVal, { color: colors.primary }]}>{LBU_INFO.stats.totalLBU}</Text>
+                  <Text style={[styles.statVal, { color: colors.primary }]}>{lbuInfo.stats.totalLBU}</Text>
                   <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Event</Text>
                 </View>
                 <View style={styles.statItem}>
-                  <Text style={[styles.statVal, { color: colors.primary }]}>{(LBU_INFO.stats.totalPeserta / 1000).toFixed(1)}K</Text>
+                  <Text style={[styles.statVal, { color: colors.primary }]}>{(lbuInfo.stats.totalPeserta / 1000).toFixed(1)}K</Text>
                   <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Peserta</Text>
                 </View>
                 <View style={styles.statItem}>
-                  <Text style={[styles.statVal, { color: colors.gold }]}>{LBU_INFO.stats.persentaseSukses}%</Text>
+                  <Text style={[styles.statVal, { color: colors.gold }]}>{lbuInfo.stats.persentaseSukses}%</Text>
                   <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Sukses</Text>
                 </View>
               </View>
@@ -90,7 +120,7 @@ function CommunityScreen() {
           return (
             <View>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Testimoni Sahabat</Text>
-              {SAMPLE_TESTIMONIALS.map((t) => (
+              {testimonials.map((t) => (
                 <View key={t.id} style={[styles.testimonialCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
                   <View style={styles.testimonialHeader}>
                     <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
@@ -115,7 +145,10 @@ function CommunityScreen() {
           return (
             <View>
               <Text style={[styles.sectionTitle, { color: colors.text }]}>Event Mendatang</Text>
-              {SAMPLE_EVENTS.slice(0, 2).map((e) => (
+              {events.length === 0 && (
+                <Text style={[styles.eventDate, { color: colors.textSecondary }]}>Belum ada event mendatang.</Text>
+              )}
+              {events.map((e) => (
                 <Pressable
                   key={e.id}
                   onPress={() => router.push(`/event/${e.id}` as any)}
@@ -134,7 +167,7 @@ function CommunityScreen() {
           return null;
       }
     },
-    [colors, theme],
+    [colors, tsnInfo, lbuInfo, testimonials, events],
   );
 
   return (
@@ -150,7 +183,6 @@ function CommunityScreen() {
       }
       contentContainerStyle={[styles.container, { backgroundColor: colors.background }]}
       showsVerticalScrollIndicator={false}
-      removeClippedSubviews
     />
   );
 }

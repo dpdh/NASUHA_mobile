@@ -14,6 +14,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
 import { KORDA_CONTACTS } from '../../constants/data';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
+import type { Korda } from '../../types';
+
+const FALLBACK_KORDAS: Korda[] = KORDA_CONTACTS.map((item) => ({
+  id: String(item.id),
+  label: `Korda ${item.region}`,
+  region: item.region,
+  ketua: item.ketua,
+  phone: item.phone,
+  icon: item.icon,
+}));
 
 const GRADIENT_PAIRS: [string, string][] = [
   ['#2EC4B6', '#0E8C7F'],
@@ -37,15 +49,16 @@ function displayPhone(phone: string): string {
   return p;
 }
 
-const KordaCard = memo(({ item, index, colors }: { item: typeof KORDA_CONTACTS[0]; index: number; colors: typeof Colors.light }) => {
+const KordaCard = memo(({ item, index, colors }: { item: Korda; index: number; colors: typeof Colors.light }) => {
   const gradient = GRADIENT_PAIRS[index % GRADIENT_PAIRS.length];
+  const phone = item.phone || '';
 
   const handleCall = () => {
-    Linking.openURL(`tel:${item.phone}`).catch(() => Alert.alert('Error', 'Tidak bisa membuka aplikasi telepon'));
+    Linking.openURL(`tel:${phone}`).catch(() => Alert.alert('Error', 'Tidak bisa membuka aplikasi telepon'));
   };
 
   const handleWhatsApp = () => {
-    const wa = formatPhone(item.phone);
+    const wa = formatPhone(phone);
     const msg = encodeURIComponent(`Assalamu'alaikum ${item.ketua}, saya ingin bertanya tentang NASUHA Korda ${item.region}.`);
     Linking.openURL(`https://wa.me/${wa.replace('+', '')}?text=${msg}`).catch(() => Alert.alert('Error', 'Tidak bisa membuka WhatsApp'));
   };
@@ -54,18 +67,20 @@ const KordaCard = memo(({ item, index, colors }: { item: typeof KORDA_CONTACTS[0
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
       <View style={styles.cardRow}>
         <LinearGradient colors={gradient} style={styles.iconCircle}>
-          <Ionicons name={item.icon as any} size={22} color="#FFF" />
+          <Ionicons name={(item.icon || 'location') as any} size={22} color="#FFF" />
         </LinearGradient>
         <View style={{ flex: 1 }}>
-          <Text style={[styles.region, { color: colors.text }]}>Korda {item.region}</Text>
-          <Text style={[styles.ketua, { color: colors.textSecondary }]}>Ketua: {item.ketua}</Text>
-          <View style={styles.phoneRow}>
-            <Ionicons name="call" size={12} color={colors.gold} />
-            <Text style={[styles.phone, { color: colors.gold }]}>{displayPhone(item.phone)}</Text>
-          </View>
+          <Text style={[styles.region, { color: colors.text }]}>{item.label}</Text>
+          {!!item.ketua && <Text style={[styles.ketua, { color: colors.textSecondary }]}>Ketua: {item.ketua}</Text>}
+          {!!phone && (
+            <View style={styles.phoneRow}>
+              <Ionicons name="call" size={12} color={colors.gold} />
+              <Text style={[styles.phone, { color: colors.gold }]}>{displayPhone(phone)}</Text>
+            </View>
+          )}
         </View>
       </View>
-      <View style={styles.btnRow}>
+      {!!phone && <View style={styles.btnRow}>
         <Pressable onPress={handleCall} style={[styles.actionBtn, { backgroundColor: colors.primary + '15' }]}>
           <Ionicons name="call" size={16} color={colors.primary} />
           <Text style={[styles.actionText, { color: colors.primary }]}>Telepon</Text>
@@ -74,7 +89,7 @@ const KordaCard = memo(({ item, index, colors }: { item: typeof KORDA_CONTACTS[0
           <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
           <Text style={[styles.actionText, { color: '#25D366' }]}>WhatsApp</Text>
         </Pressable>
-      </View>
+      </View>}
     </View>
   );
 });
@@ -82,6 +97,10 @@ const KordaCard = memo(({ item, index, colors }: { item: typeof KORDA_CONTACTS[0
 function KordaScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
+  const { data: kordas = FALLBACK_KORDAS, refreshing, refresh } = useApiQuery(() => contentApi.kordas(), [], {
+    cacheKey: 'kordas',
+    fallback: FALLBACK_KORDAS,
+  });
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -107,8 +126,10 @@ function KordaScreen() {
 
       {/* Contact List */}
       <FlatList
-        data={KORDA_CONTACTS}
-        keyExtractor={(item) => String(item.id)}
+        data={kordas}
+        keyExtractor={(item) => item.id}
+        refreshing={refreshing}
+        onRefresh={refresh}
         renderItem={({ item, index }) => <KordaCard item={item} index={index} colors={colors} />}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}

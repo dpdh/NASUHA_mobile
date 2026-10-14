@@ -169,7 +169,6 @@ function HadisIndexScreen() {
           renderItem={renderCollItem}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews
         />
       ) : (
         /* ─── CARI (Search + Wheel Picker) ─── */

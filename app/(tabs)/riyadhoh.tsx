@@ -1,5 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Haptics from 'expo-haptics';
+import { router, useFocusEffect } from 'expo-router';
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
     Animated,
@@ -13,9 +14,13 @@ import {
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
 import { RIYADHOH_ITEMS } from '../../constants/data';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { riyadhohApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
+import type { RiyadhohDoc, RiyadhohItem } from '../../types';
+import { addDaysKey, wibDateKey } from '../../utils/date';
 
-interface RiyadhohRow { id: string; name: string; icon: string; done: boolean; rakaat?: number; }
+interface RiyadhohRow { id: string; name: string; icon: string; done: boolean; rakaat?: number | null; }
 
 const RIYADHOH_DOCS = {
   azzam: {
@@ -110,16 +115,18 @@ const DocOptionButton = memo(
   },
 );
 
-function getWeekDates(): string[] {
-  const today = new Date();
-  const day = today.getDay();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - ((day + 6) % 7));
-  return Array.from({ length: 7 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return d.toISOString().split('T')[0];
-  });
+// Dokumen bawaan bila server belum terjangkau.
+const FALLBACK_DOCS: RiyadhohDoc[] = (Object.keys(RIYADHOH_DOCS) as (keyof typeof RIYADHOH_DOCS)[]).map((id) => ({
+  id,
+  title: RIYADHOH_DOCS[id].title,
+  body: RIYADHOH_DOCS[id].body,
+}));
+
+// Senin–Minggu pekan berjalan (tanggal WIB).
+function getWeekDates(todayKey: string): string[] {
+  const day = new Date(`${todayKey}T00:00:00Z`).getUTCDay();
+  const monday = addDaysKey(todayKey, -((day + 6) % 7));
+  return Array.from({ length: 7 }, (_, i) => addDaysKey(monday, i));
 }
 
 const CheckItem = memo(
@@ -151,11 +158,26 @@ function RiyadhohScreen() {
   const theme = useAppStore((s) => s.theme);
   const riyadhohLogs = useAppStore((s) => s.riyadhohLogs);
   const toggleRiyadhoh = useAppStore((s) => s.toggleRiyadhoh);
+  const syncRiyadhoh = useAppStore((s) => s.syncRiyadhoh);
+  const user = useAppStore((s) => s.user);
+  const canSync = useAppStore((s) => s.hasFeature('riyadhoh'));
   const colors = Colors[theme];
 
-  const todayKey = useMemo(() => new Date().toISOString().split('T')[0], []);
-  const weekDates = useMemo(() => getWeekDates(), []);
-  const [selectedDoc, setSelectedDoc] = useState<keyof typeof RIYADHOH_DOCS>('azzam');
+  const { data: remote } = useApiQuery(() => riyadhohApi.items(), [], { cacheKey: 'riyadhoh_items' });
+  const items: RiyadhohItem[] = remote?.items?.length ? remote.items : RIYADHOH_ITEMS;
+  const docs: RiyadhohDoc[] = remote?.docs?.length ? remote.docs : FALLBACK_DOCS;
+
+  // Dihitung tiap render (WIB) agar berganti hari tepat tengah malam.
+  const todayKey = wibDateKey();
+  const weekDates = useMemo(() => getWeekDates(todayKey), [todayKey]);
+  const [selectedDocId, setSelectedDocId] = useState<string>('azzam');
+  const selectedDoc = docs.find((doc) => doc.id === selectedDocId) || docs[0];
+
+  useFocusEffect(
+    useCallback(() => {
+      if (user) syncRiyadhoh().catch(() => {});
+    }, [user, syncRiyadhoh]),
+  );
   const [ribbonVisible, setRibbonVisible] = useState(true);
   const docFade = useRef(new Animated.Value(1)).current;
   const docSlide = useRef(new Animated.Value(0)).current;
@@ -193,56 +215,53 @@ function RiyadhohScreen() {
         useNativeDriver: true,
       }),
     ]).start();
-  }, [docFade, docSlide, selectedDoc]);
+  }, [docFade, docSlide, selectedDocId]);
 
   const sections = useMemo(() => {
     const grouped: Record<string, RiyadhohRow[]> = {};
-    for (const item of RIYADHOH_ITEMS) {
+    for (const item of items) {
       const key = `${item.id}_${todayKey}`;
-      const row: RiyadhohRow = { id: item.id, name: item.name, icon: item.icon, done: !!riyadhohLogs[key], rakaat: 'rakaat' in item ? item.rakaat : undefined };
+      const row: RiyadhohRow = { id: item.id, name: item.name, icon: item.icon, done: !!riyadhohLogs[key], rakaat: item.rakaat };
       if (!grouped[item.category]) grouped[item.category] = [];
       grouped[item.category].push(row);
     }
     return Object.entries(grouped).map(([title, data]) => ({ title, data }));
-  }, [riyadhohLogs, todayKey]);
+  }, [riyadhohLogs, todayKey, items]);
 
   const progress = useMemo(() => {
-    const total = RIYADHOH_ITEMS.length;
+    const total = items.length;
     let done = 0;
-    for (const item of RIYADHOH_ITEMS) {
+    for (const item of items) {
       if (riyadhohLogs[`${item.id}_${todayKey}`]) done++;
     }
     return { done, total, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
-  }, [riyadhohLogs, todayKey]);
+  }, [riyadhohLogs, todayKey, items]);
 
   // Calculate streak
   const streak = useMemo(() => {
     let count = 0;
-    const today = new Date();
     for (let i = 0; i < 365; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const dateKey = d.toISOString().split('T')[0];
+      const dateKey = addDaysKey(todayKey, -i);
       let anyDone = false;
-      for (const item of RIYADHOH_ITEMS) {
+      for (const item of items) {
         if (riyadhohLogs[`${item.id}_${dateKey}`]) { anyDone = true; break; }
       }
       if (anyDone) count++;
       else if (i > 0) break; // Allow today to be incomplete
     }
     return count;
-  }, [riyadhohLogs]);
+  }, [riyadhohLogs, todayKey, items]);
 
   // Weekly chart data
   const weeklyData = useMemo(() => {
     return weekDates.map((dateKey) => {
       let done = 0;
-      for (const item of RIYADHOH_ITEMS) {
+      for (const item of items) {
         if (riyadhohLogs[`${item.id}_${dateKey}`]) done++;
       }
-      return { date: dateKey, done, pct: Math.round((done / RIYADHOH_ITEMS.length) * 100), isToday: dateKey === todayKey };
+      return { date: dateKey, done, pct: items.length ? Math.round((done / items.length) * 100) : 0, isToday: dateKey === todayKey };
     });
-  }, [weekDates, riyadhohLogs, todayKey]);
+  }, [weekDates, riyadhohLogs, todayKey, items]);
 
   const handleToggle = useCallback(
     (id: string) => {
@@ -298,16 +317,15 @@ function RiyadhohScreen() {
         <View style={[styles.ribbonWrapper, { backgroundColor: 'rgba(255,255,255,0.06)', borderColor: 'rgba(255,255,255,0.1)' }]}>
           {ribbonVisible ? (
             <View style={styles.ribbonMenu}>
-              {(Object.keys(RIYADHOH_DOCS) as Array<keyof typeof RIYADHOH_DOCS>).map((key) => {
-                const active = selectedDoc === key;
-                const label = key === 'azzam' ? 'Azzam Riyadhoh' : 'Afirmasi Positif';
+              {docs.map((doc) => {
+                const active = selectedDoc?.id === doc.id;
                 return (
                   <DocOptionButton
-                    key={key}
-                    label={label}
+                    key={doc.id}
+                    label={doc.title}
                     active={active}
                     colors={colors}
-                    onPress={() => setSelectedDoc(key)}
+                    onPress={() => setSelectedDocId(doc.id)}
                   />
                 );
               })}
@@ -322,31 +340,44 @@ function RiyadhohScreen() {
           )}
         </View>
 
-        {ribbonVisible && (
+        {ribbonVisible && selectedDoc && (
           <Animated.View
             style={[
               styles.docCard,
               {
-                backgroundColor: 'rgba(255,255,255,0.06)',
-                borderColor: 'rgba(255,255,255,0.12)',
+                backgroundColor: colors.card,
+                borderColor: colors.border,
                 opacity: docFade,
                 transform: [{ translateY: docSlide }],
               },
               Shadows.sm,
             ]}
           >
-            <Text style={[styles.docTitle, { color: colors.text }]}>{RIYADHOH_DOCS[selectedDoc].title}</Text>
+            <Text style={[styles.docTitle, { color: colors.text }]}>{selectedDoc.title}</Text>
             <ScrollView
               style={styles.docScroll}
               showsVerticalScrollIndicator={false}
               bounces={false}
               contentContainerStyle={styles.docContent}
             >
-              <Text style={[styles.docBody, { color: colors.textSecondary }]}>{RIYADHOH_DOCS[selectedDoc].body}</Text>
+              <Text style={[styles.docBody, { color: colors.textSecondary }]}>{selectedDoc.body}</Text>
             </ScrollView>
           </Animated.View>
         )}
 
+        {!canSync && (
+          <Pressable
+            onPress={() => { if (!user) router.push('/(auth)/login' as any); }}
+            style={[styles.syncBanner, { backgroundColor: colors.primary + '12', borderColor: colors.primary + '40' }]}
+          >
+            <Ionicons name={user ? 'phone-portrait-outline' : 'log-in-outline'} size={16} color={colors.primary} />
+            <Text style={[styles.syncBannerText, { color: colors.textSecondary }]}>
+              {user
+                ? 'Riyadhoh tersimpan di perangkat ini. Upgrade membership untuk sinkron antar perangkat.'
+                : 'Login agar riyadhoh tersimpan di akun'}
+            </Text>
+          </Pressable>
+        )}
         <View style={[styles.progressCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.md]}>
           <ShimmerGold style={styles.shimmer} />
           <View style={styles.progressRow}>
@@ -409,7 +440,6 @@ function RiyadhohScreen() {
         renderSectionHeader={renderSectionHeader}
         showsVerticalScrollIndicator={false}
         stickySectionHeadersEnabled={false}
-        removeClippedSubviews
         onScroll={handleListScroll}
         scrollEventThrottle={16}
         ListHeaderComponent={
@@ -550,7 +580,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 18,
     shadowOffset: { width: 0, height: 10 },
-    backgroundColor: 'rgba(255,255,255,0.04)',
   },
   docTitle: { fontSize: FontSize.lg, fontWeight: '800', marginBottom: Spacing.sm },
   docScroll: { maxHeight: 180 },
@@ -599,6 +628,18 @@ const styles = StyleSheet.create({
   chartBarFill: { width: '100%', borderRadius: 8, minHeight: 12 },
   chartDay: { fontSize: FontSize.xs, marginTop: 4 },
   streakMsg: { fontSize: FontSize.sm, fontWeight: '600', textAlign: 'center', marginTop: Spacing.sm },
+  syncBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: Spacing.lg,
+    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: 8,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  syncBannerText: { flex: 1, fontSize: FontSize.xs, lineHeight: 16 },
   checklistLabel: { fontSize: FontSize.lg, fontWeight: '700', marginHorizontal: Spacing.lg, marginTop: Spacing.lg, marginBottom: Spacing.sm },
   listContent: { paddingTop: Spacing.md, paddingBottom: 120 },
   fabContainer: {
@@ -615,7 +656,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.14)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.32)',
-    backdropFilter: 'blur(10px)',
   },
   fabBubbleText: {
     color: '#FFF',

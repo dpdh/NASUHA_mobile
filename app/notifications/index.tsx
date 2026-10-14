@@ -1,78 +1,118 @@
-import React, { memo, useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   FlatList,
   Pressable,
+  ActivityIndicator,
+  Alert,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
-
-interface Notification {
-  id: string;
-  title: string;
-  body: string;
-  icon: React.ComponentProps<typeof Ionicons>['name'];
-  time: string;
-  read: boolean;
-  type: 'event' | 'riyadhoh' | 'motivasi' | 'lbu' | 'info';
-}
-
-const SAMPLE_NOTIFS: Notification[] = [
-  { id: '1', title: 'TSN Jakarta', body: 'TSN Jakarta akan dimulai 3 hari lagi. Pastikan sudah mendaftar!', icon: 'calendar', time: '2 jam lalu', read: false, type: 'event' },
-  { id: '2', title: 'Riyadhoh Reminder', body: 'Sudahkah Anda melakukan Riyadhoh hari ini? Ayo istiqamah!', icon: 'checkmark-circle', time: '5 jam lalu', read: false, type: 'riyadhoh' },
-  { id: '3', title: 'Motivasi Hari Ini', body: 'Motivasi hari ini sudah tersedia. Yuk baca dan bagikan!', icon: 'bulb', time: '8 jam lalu', read: true, type: 'motivasi' },
-  { id: '4', title: 'LBU Batch Baru', body: 'Pendaftaran LBU Batch terbaru telah dibuka. Daftar sekarang!', icon: 'rocket', time: '1 hari lalu', read: true, type: 'lbu' },
-  { id: '5', title: 'Selamat Bergabung!', body: 'Assalamu\'alaikum, selamat bergabung di komunitas NASUHA Jakarta.', icon: 'heart', time: '2 hari lalu', read: true, type: 'info' },
-];
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { errorMessage } from '../../services/api';
+import { notificationApi } from '../../services/nasjakApi';
+import type { AppNotification } from '../../types';
+import { relativeTime } from '../../utils/date';
+import { tint } from '../../utils/color';
 
 const TYPE_COLORS: Record<string, string> = {
-  event: '#00B4D8', riyadhoh: '#2EC4B6', motivasi: '#D4A853', lbu: '#FF6B6B', info: '#8BA4B8',
+  event: '#00B4D8', riyadhoh: '#2EC4B6', motivasi: '#D4A853', lbu: '#FF6B6B', lapak: '#F59E0B', tanya: '#16A34A', info: '#8BA4B8',
+};
+
+const TYPE_ICONS: Record<string, React.ComponentProps<typeof Ionicons>['name']> = {
+  event: 'calendar', riyadhoh: 'checkmark-circle', motivasi: 'bulb', lbu: 'rocket', lapak: 'storefront', tanya: 'chatbubble-ellipses', info: 'notifications',
 };
 
 function NotificationsScreen() {
   const theme = useAppStore((s) => s.theme);
+  const user = useAppStore((s) => s.user);
   const colors = Colors[theme];
-  const [notifs, setNotifs] = useState(SAMPLE_NOTIFS);
 
+  const { data, setData, loading, refreshing, error, refresh } = useApiQuery(
+    () => notificationApi.list().then((result) => result.data),
+    [user?.id],
+    { enabled: Boolean(user), refetchOnFocus: true },
+  );
+  const notifs = useMemo(() => data || [], [data]);
   const unreadCount = useMemo(() => notifs.filter((n) => !n.read).length, [notifs]);
 
   const markRead = useCallback((id: string) => {
-    setNotifs((prev) => prev.map((n) => n.id === id ? { ...n, read: true } : n));
-  }, []);
+    setData((prev) => prev?.map((n) => (n.id === id ? { ...n, read: true } : n)));
+    notificationApi.markRead(id).catch(() => {});
+  }, [setData]);
 
-  const markAllRead = useCallback(() => {
-    setNotifs((prev) => prev.map((n) => ({ ...n, read: true })));
-  }, []);
+  const markAllRead = useCallback(async () => {
+    const previous = notifs;
+    setData((prev) => prev?.map((n) => ({ ...n, read: true })));
+    try {
+      await notificationApi.markAllRead();
+    } catch (caught) {
+      setData(previous);
+      Alert.alert('Gagal', errorMessage(caught));
+    }
+  }, [notifs, setData]);
+
+  const handlePress = useCallback((item: AppNotification) => {
+    if (!item.read) markRead(item.id);
+    const route = typeof item.data?.route === 'string' ? item.data.route : null;
+    if (route) router.push(route as any);
+  }, [markRead]);
 
   const renderItem = useCallback(
-    ({ item }: { item: Notification }) => (
-      <Pressable
-        onPress={() => markRead(item.id)}
-        style={[
-          styles.notifCard,
-          { backgroundColor: item.read ? colors.card : colors.primary + '08', borderColor: item.read ? colors.border : colors.primary + '30' },
-          Shadows.sm,
-        ]}
-      >
-        <View style={[styles.notifIcon, { backgroundColor: TYPE_COLORS[item.type] + '20' }]}>
-          <Ionicons name={item.icon} size={22} color={TYPE_COLORS[item.type]} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <View style={styles.notifHeaderRow}>
-            <Text style={[styles.notifTitle, { color: colors.text }]}>{item.title}</Text>
-            {!item.read && <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />}
+    ({ item }: { item: AppNotification }) => {
+      const color = TYPE_COLORS[item.type] || TYPE_COLORS.info;
+      const icon = (item.icon as React.ComponentProps<typeof Ionicons>['name']) || TYPE_ICONS[item.type] || 'notifications';
+      return (
+        <Pressable
+          onPress={() => handlePress(item)}
+          style={[
+            styles.notifCard,
+            { backgroundColor: item.read ? colors.card : tint(colors.primary, 0.05, colors.card), borderColor: item.read ? colors.border : colors.primary + '30' },
+            Shadows.sm,
+          ]}
+        >
+          <View style={[styles.notifIcon, { backgroundColor: color + '20' }]}>
+            <Ionicons name={icon in Ionicons.glyphMap ? icon : TYPE_ICONS[item.type] || 'notifications'} size={22} color={color} />
           </View>
-          <Text style={[styles.notifBody, { color: colors.textSecondary }]} numberOfLines={2}>{item.body}</Text>
-          <Text style={[styles.notifTime, { color: colors.textMuted }]}>{item.time}</Text>
-        </View>
-      </Pressable>
-    ),
-    [colors, markRead],
+          <View style={{ flex: 1 }}>
+            <View style={styles.notifHeaderRow}>
+              <Text style={[styles.notifTitle, { color: colors.text }]}>{item.title}</Text>
+              {!item.read && <View style={[styles.unreadDot, { backgroundColor: colors.primary }]} />}
+            </View>
+            {item.body ? <Text style={[styles.notifBody, { color: colors.textSecondary }]} numberOfLines={3}>{item.body}</Text> : null}
+            <Text style={[styles.notifTime, { color: colors.textMuted }]}>{relativeTime(item.createdAt)}</Text>
+          </View>
+          {item.data?.route ? <Ionicons name="chevron-forward" size={18} color={colors.textMuted} /> : null}
+        </Pressable>
+      );
+    },
+    [colors, handlePress],
   );
+
+  if (!user) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { backgroundColor: colors.card }]}>
+          <Pressable onPress={() => router.back()} hitSlop={12}>
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
+          </Pressable>
+          <Text style={[styles.title, { color: colors.text, marginLeft: Spacing.md }]}>Notifikasi</Text>
+        </View>
+        <View style={styles.emptyBox}>
+          <Ionicons name="notifications-outline" size={48} color={colors.textMuted} />
+          <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Login untuk melihat notifikasi Anda</Text>
+          <Pressable onPress={() => router.push('/(auth)/login' as any)} style={[styles.loginBtn, { backgroundColor: colors.primary }]}>
+            <Text style={styles.loginBtnText}>Login</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -98,11 +138,16 @@ function NotificationsScreen() {
         renderItem={renderItem}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />}
         ListEmptyComponent={
-          <View style={styles.emptyBox}>
-            <Ionicons name="notifications-off-outline" size={48} color={colors.textMuted} />
-            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Belum ada notifikasi</Text>
-          </View>
+          loading ? (
+            <ActivityIndicator style={{ marginTop: Spacing.xxl }} color={colors.primary} />
+          ) : (
+            <View style={styles.emptyBox}>
+              <Ionicons name={error ? 'cloud-offline-outline' : 'notifications-off-outline'} size={48} color={colors.textMuted} />
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{error || 'Belum ada notifikasi'}</Text>
+            </View>
+          )
         }
       />
     </View>
@@ -126,5 +171,7 @@ const styles = StyleSheet.create({
   notifBody: { fontSize: FontSize.sm, lineHeight: 18, marginTop: 2 },
   notifTime: { fontSize: FontSize.xs, marginTop: 4 },
   emptyBox: { alignItems: 'center', paddingVertical: Spacing.xxl, gap: Spacing.md },
-  emptyText: { fontSize: FontSize.md },
+  emptyText: { fontSize: FontSize.md, textAlign: 'center', paddingHorizontal: Spacing.lg },
+  loginBtn: { paddingHorizontal: Spacing.xl, paddingVertical: Spacing.sm, borderRadius: BorderRadius.lg },
+  loginBtnText: { color: '#FFF', fontSize: FontSize.md, fontWeight: '700' },
 });

@@ -5,22 +5,31 @@ import {
   StyleSheet,
   FlatList,
   Pressable,
+  RefreshControl,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
-import { SAMPLE_EVENTS } from '../../constants/data';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { eventApi } from '../../services/nasjakApi';
+import type { Event } from '../../types';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function EventIndexScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
   const insets = useSafeAreaInsets();
+  const { data, loading, refreshing, refresh, error } = useApiQuery(
+    () => eventApi.list({ perPage: 50 }).then((result) => result.data),
+    [],
+    { cacheKey: 'events_upcoming', refetchOnFocus: true },
+  );
 
   const renderItem = useCallback(
-    ({ item }: { item: (typeof SAMPLE_EVENTS)[0] }) => {
-      const pct = Math.round((item.registered / item.quota) * 100);
+    ({ item }: { item: Event }) => {
+      const pct = item.quota > 0 ? Math.min(100, Math.round((item.registered / item.quota) * 100)) : 0;
       return (
         <Pressable
           onPress={() => router.push(`/event/${item.id}` as any)}
@@ -61,12 +70,19 @@ function EventIndexScreen() {
         <View style={{ width: 24 }} />
       </View>
       <FlatList
-        data={SAMPLE_EVENTS}
+        data={data || []}
         keyExtractor={(item) => String(item.id)}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        removeClippedSubviews
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />}
+        ListEmptyComponent={
+          loading ? (
+            <ActivityIndicator color={colors.primary} style={{ marginTop: Spacing.xl }} />
+          ) : (
+            <Text style={[styles.empty, { color: colors.textMuted }]}>{error || 'Belum ada event mendatang.'}</Text>
+          )
+        }
       />
     </View>
   );
@@ -90,4 +106,5 @@ const styles = StyleSheet.create({
   progressBar: { flex: 1, height: 4, borderRadius: 2, overflow: 'hidden' },
   progressFill: { height: 4, borderRadius: 2 },
   quota: { fontSize: FontSize.xs },
+  empty: { textAlign: 'center', marginTop: Spacing.xl, fontSize: FontSize.sm },
 });

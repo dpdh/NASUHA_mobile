@@ -8,6 +8,8 @@ import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize } from '../../constants/theme';
 import { LAPAK_CATEGORIES } from '../../constants/data';
+import { ApiError, errorMessage } from '../../services/api';
+import { lapakApi, uploadApi } from '../../services/nasjakApi';
 
 const CONDITIONS = ['Baru', 'Bekas'] as const;
 const MAX_PHOTOS = 5;
@@ -15,7 +17,7 @@ const MAX_PHOTOS = 5;
 function AddProductScreen() {
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
-  const addProduct = useAppStore((s) => s.addProduct);
+  const references = useAppStore((s) => s.references);
   const colors = Colors[theme];
 
   const [name, setName] = useState('');
@@ -74,38 +76,47 @@ function AddProductScreen() {
     if (!whatsapp.trim()) { Alert.alert('Error', 'Nomor WhatsApp harus diisi'); return; }
 
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
-
-    addProduct({
-      sellerId: user?.id || '',
-      sellerName: user?.name || '',
-      sellerCity: user?.city || shippingFrom || '',
-      sellerWhatsapp: whatsapp.trim(),
-      name: name.trim(),
-      category,
-      description: description.trim(),
-      price: Number(price),
-      photos,
-      specs: {
-        weight: weight.trim() || undefined,
-        condition,
-        stock: stock ? Number(stock) : undefined,
-        minOrder: minOrder ? Number(minOrder) : 1,
-        variant: variant.trim() || undefined,
-        shippingFrom: shippingFrom.trim() || undefined,
-      },
-      tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
-    });
-
-    setSaving(false);
-    Alert.alert('Dagangan Ditambahkan!', 'Dagangan Anda sedang menunggu persetujuan admin.', [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
-  }, [name, category, price, photos, description, whatsapp, weight, condition, stock, minOrder, variant, shippingFrom, tags, user, addProduct]);
+    try {
+      const uploaded: string[] = [];
+      for (const uri of photos) {
+        uploaded.push(/^https?:\/\//.test(uri) ? uri : (await uploadApi.image(uri, 'product')).url);
+      }
+      await lapakApi.create({
+        sellerWhatsapp: whatsapp.trim(),
+        name: name.trim(),
+        category,
+        description: description.trim(),
+        price: Number(price),
+        photos: uploaded,
+        specs: {
+          weight: weight.trim() || undefined,
+          condition,
+          stock: stock ? Number(stock) : undefined,
+          minOrder: minOrder ? Number(minOrder) : 1,
+          variant: variant.trim() || undefined,
+          shippingFrom: shippingFrom.trim() || undefined,
+        },
+        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+      });
+      Alert.alert('Dagangan Ditambahkan!', 'Dagangan Anda sedang menunggu persetujuan admin.', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.isFeatureLocked) {
+        Alert.alert('Khusus Sahabat NASUHA', 'Fitur Lapak Penjualan khusus untuk anggota Sahabat NASUHA. Hubungi admin atau korda Anda untuk upgrade membership.');
+      } else {
+        Alert.alert('Gagal Memposting', errorMessage(caught));
+      }
+    } finally {
+      setSaving(false);
+    }
+  }, [name, category, price, photos, description, whatsapp, weight, condition, stock, minOrder, variant, shippingFrom, tags]);
 
   if (!user) return null;
 
-  const categories = LAPAK_CATEGORIES.filter((c) => c.id !== 'semua');
+  const categories = references?.lapakCategories?.length
+    ? references.lapakCategories.map((c) => ({ id: c.id, label: c.label, icon: c.icon || 'pricetag-outline' }))
+    : LAPAK_CATEGORIES.filter((c) => c.id !== 'semua');
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -236,6 +247,7 @@ const Field = memo(({ label, value, onChangeText, placeholder, colors, keyboardT
     </View>
   </View>
 ));
+Field.displayName = 'Field';
 
 export default memo(AddProductScreen);
 

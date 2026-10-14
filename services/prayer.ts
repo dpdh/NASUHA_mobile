@@ -2,6 +2,7 @@ import * as Location from 'expo-location';
 import { Platform } from 'react-native';
 import type { NotificationSettings, PrayerLocation } from '../types';
 import { getNotifications } from './nativeModules';
+import { registerPushDevice } from './push';
 
 export interface PrayerTimes {
   Fajr: string;
@@ -98,7 +99,12 @@ export function getQiblaBearing(location: PrayerLocation): number {
 
 export async function fetchNearbyMosques(location: PrayerLocation): Promise<NearbyMosque[]> {
   const query = `[out:json][timeout:15];(nwr[amenity=place_of_worship][religion=muslim](around:5000,${location.latitude},${location.longitude});nwr[amenity=mosque](around:5000,${location.latitude},${location.longitude}););out center tags;`;
-  const response = await fetch(`https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`);
+  const url = `https://overpass-api.de/api/interpreter?data=${encodeURIComponent(query)}`;
+  // Overpass menolak (406) request tanpa User-Agent yang mengidentifikasi aplikasi.
+  const request = () => fetch(url, { headers: { 'User-Agent': 'NASUHA-App/1.0 (com.nasuha.nasjak)', Accept: 'application/json' } });
+  let response = await request();
+  // Server publik Overpass sesekali sibuk (429/504); coba sekali lagi sebelum menyerah.
+  if (response.status === 429 || response.status >= 500) response = await request();
   if (!response.ok) throw new Error('Masjid terdekat tidak dapat dimuat.');
   const payload = await response.json();
   const seen = new Set<string>();
@@ -138,12 +144,14 @@ export async function requestNotificationPermission(): Promise<boolean> {
     await Notifications.setNotificationChannelAsync('reminders', {
       name: 'Pengingat NASUHA',
       importance: Notifications.AndroidImportance.DEFAULT,
-      sound: 'default',
+      // Tanpa `sound` channel memakai suara notifikasi bawaan sistem; 'default' dianggap file kustom dan error.
     });
   }
   const current = await Notifications.getPermissionsAsync();
   if (current.granted) return true;
   const requested = await Notifications.requestPermissionsAsync({ ios: { allowAlert: true, allowBadge: true, allowSound: true } });
+  // Izin baru diberikan: daftarkan perangkat untuk push dari server.
+  if (requested.granted) void registerPushDevice();
   return requested.granted;
 }
 

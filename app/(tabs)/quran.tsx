@@ -182,7 +182,6 @@ function QuranScreen() {
           renderItem={renderSurahItem}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews
           initialNumToRender={15}
           maxToRenderPerBatch={15}
           windowSize={7}

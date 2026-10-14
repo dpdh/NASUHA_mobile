@@ -6,14 +6,18 @@ import {
   ScrollView,
   Pressable,
   Image,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
-import { LBU_INFO, SAMPLE_EVENTS, SAMPLE_TESTIMONIALS } from '../../constants/data';
+import { LBU_INFO, SAMPLE_TESTIMONIALS } from '../../constants/data';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi, eventApi, testimonialApi } from '../../services/nasjakApi';
+import type { Testimonial } from '../../types';
 
 const LOGO_BADGE = require('../../assets/images/logo-badge.png');
 
@@ -26,6 +30,24 @@ const TIMELINE_STEPS = [
   { num: 6, title: 'BEBAS UTANG', desc: 'Alhamdulillah, terbebas dari jeratan riba!', icon: 'trophy-outline' as const },
 ];
 
+type TimelineStep = { num: number; title: string; desc: string; icon: React.ComponentProps<typeof Ionicons>['name'] };
+type ProgramCta = { label?: string; type?: 'whatsapp' | 'url' | 'route'; value?: string };
+
+const FALLBACK_TESTIMONIALS: Testimonial[] = SAMPLE_TESTIMONIALS
+  .filter((t) => t.program === 'LBU')
+  .slice(0, 2)
+  .map((t) => ({ ...t, id: String(t.id) }));
+
+function openCta(cta?: ProgramCta) {
+  if (!cta?.value) {
+    router.push('/korda' as any);
+    return;
+  }
+  if (cta.type === 'whatsapp') Linking.openURL(`https://wa.me/${cta.value.replace(/[^0-9]/g, '')}`).catch(() => {});
+  else if (cta.type === 'url') Linking.openURL(cta.value).catch(() => {});
+  else router.push(cta.value as any);
+}
+
 function formatRupiah(num: number): string {
   if (num >= 1_000_000_000) return `Rp ${(num / 1_000_000_000).toFixed(0)} M`;
   if (num >= 1_000_000) return `Rp ${(num / 1_000_000).toFixed(0)} Jt`;
@@ -35,7 +57,25 @@ function formatRupiah(num: number): string {
 function LBUScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
-  const lbuEvents = SAMPLE_EVENTS.filter((e) => e.type === 'LBU');
+  const { data: program } = useApiQuery(() => contentApi.program('lbu'), [], { cacheKey: 'program_lbu' });
+  const { data: testimonials = FALLBACK_TESTIMONIALS } = useApiQuery(
+    () => testimonialApi.list({ program: 'LBU', perPage: 2 }).then((result) => result.data),
+    [],
+    { cacheKey: 'lbu_testimonials', fallback: FALLBACK_TESTIMONIALS },
+  );
+  const { data: lbuEvents = [] } = useApiQuery(
+    () => eventApi.list({ type: 'LBU' }).then((result) => result.data),
+    [],
+    { cacheKey: 'lbu_events', refetchOnFocus: true },
+  );
+
+  const info = {
+    title: program?.title || LBU_INFO.title,
+    description: program?.description || LBU_INFO.description,
+    stats: { ...LBU_INFO.stats, ...((program?.data?.stats as Partial<typeof LBU_INFO.stats>) ?? {}) },
+  };
+  const steps = (program?.data?.steps as TimelineStep[] | undefined)?.length ? (program!.data.steps as TimelineStep[]) : TIMELINE_STEPS;
+  const cta = program?.data?.cta as ProgramCta | undefined;
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
@@ -45,7 +85,7 @@ function LBUScreen() {
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </Pressable>
         <Image source={LOGO_BADGE} style={styles.heroLogo} resizeMode="contain" />
-        <Text style={styles.heroTitle}>{LBU_INFO.title}</Text>
+        <Text style={styles.heroTitle}>{info.title}</Text>
         <Text style={styles.heroTagline}>Bukan Sekadar Melunasi Utang, Tetapi Mengubah Cara Hidup.</Text>
       </LinearGradient>
 
@@ -54,19 +94,19 @@ function LBUScreen() {
         <ShimmerGold style={styles.shimmer} />
         <View style={styles.statsGrid}>
           <View style={styles.statItem}>
-            <Text style={[styles.statVal, { color: colors.primary }]}>{LBU_INFO.stats.totalLBU}</Text>
+            <Text style={[styles.statVal, { color: colors.primary }]}>{info.stats.totalLBU}</Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Event</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={[styles.statVal, { color: colors.primary }]}>{(LBU_INFO.stats.totalPeserta / 1000).toFixed(1)}K</Text>
+            <Text style={[styles.statVal, { color: colors.primary }]}>{(info.stats.totalPeserta / 1000).toFixed(1)}K</Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Peserta</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={[styles.statVal, { color: colors.gold }]}>{formatRupiah(LBU_INFO.stats.totalLunas)}</Text>
+            <Text style={[styles.statVal, { color: colors.gold }]}>{formatRupiah(info.stats.totalLunas)}</Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total Lunas</Text>
           </View>
           <View style={styles.statItem}>
-            <Text style={[styles.statVal, { color: colors.success }]}>{LBU_INFO.stats.persentaseSukses}%</Text>
+            <Text style={[styles.statVal, { color: colors.success }]}>{info.stats.persentaseSukses}%</Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Sukses</Text>
           </View>
         </View>
@@ -75,14 +115,14 @@ function LBUScreen() {
       {/* About */}
       <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>
         <Text style={[styles.sectionLabel, { color: colors.gold }]}>Apa itu LBU?</Text>
-        <Text style={[styles.desc, { color: colors.textSecondary }]}>{LBU_INFO.description}</Text>
+        <Text style={[styles.desc, { color: colors.textSecondary }]}>{info.description}</Text>
       </View>
 
       {/* Timeline */}
       <Text style={[styles.timelineTitle, { color: colors.text }]}>Timeline Program LBU</Text>
       <View style={styles.timeline}>
-        {TIMELINE_STEPS.map((step, i) => {
-          const isLast = i === TIMELINE_STEPS.length - 1;
+        {steps.map((step, i) => {
+          const isLast = i === steps.length - 1;
           return (
             <View key={step.num} style={styles.timelineItem}>
               {/* Line */}
@@ -107,7 +147,7 @@ function LBUScreen() {
 
       {/* Testimoni Alumni */}
       <Text style={[styles.timelineTitle, { color: colors.text }]}>Testimoni Alumni LBU</Text>
-      {SAMPLE_TESTIMONIALS.filter((t) => t.program === 'LBU').slice(0, 2).map((t) => (
+      {testimonials.map((t) => (
         <View key={t.id} style={[styles.testimonialCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
           <View style={styles.testimonialHeader}>
             <View style={[styles.testimonialAvatar, { backgroundColor: colors.gold }]}>
@@ -138,10 +178,10 @@ function LBUScreen() {
       )}
 
       {/* CTA */}
-      <Pressable style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}>
+      <Pressable onPress={() => openCta(cta)} style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}>
         <LinearGradient colors={['#D4A853', '#B8860B']} style={styles.ctaBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
           <Ionicons name="rocket" size={22} color="#FFF" />
-          <Text style={styles.ctaText}>DAFTAR LBU</Text>
+          <Text style={styles.ctaText}>{cta?.label || 'DAFTAR LBU'}</Text>
         </LinearGradient>
       </Pressable>
       <View style={{ height: 24 }} />

@@ -2,43 +2,51 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { memo, useCallback, useMemo, useState } from 'react';
 import {
+    ActivityIndicator,
     FlatList,
     Pressable,
+    RefreshControl,
     StyleSheet,
     Text,
     View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { SAMPLE_EVENTS } from '../../constants/data';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { eventApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
 import type { Event } from '../../types';
 
-const EVENT_CATEGORIES = ['Semua', 'TSN', 'LBU', 'Kajian', 'KFM', 'TOT', 'Scale Up Bisnis', 'Safari Dakwah', 'Digital Marketing', 'Public Speaking', 'Business Coaching'];
+const EVENT_CATEGORIES = ['Semua', 'TSN', 'LBU', 'Kajian', 'KFM', 'TOT', 'Scale Up Bisnis', 'Safari Dakwah', 'Digital Marketing', 'Public Speaking', 'Business Coaching', 'Sosial', 'Lainnya'];
 
 function EventTabScreen() {
   const theme = useAppStore((s) => s.theme);
-  const storeEvents = useAppStore((s) => s.events);
+  const references = useAppStore((s) => s.references);
+  const user = useAppStore((s) => s.user);
+  const isStaff = useAppStore((s) => s.isStaff);
   const colors = Colors[theme];
   const insets = useSafeAreaInsets();
   const [filter, setFilter] = useState('Semua');
+  const { data, loading, refreshing, refresh, error } = useApiQuery(
+    () => eventApi.list({ perPage: 50 }).then((result) => result.data),
+    [user?.id],
+    { cacheKey: 'events_upcoming', refetchOnFocus: true },
+  );
+
+  const categories = useMemo(
+    () => (references?.eventTypes?.length ? ['Semua', ...references.eventTypes.map((type) => type.id)] : EVENT_CATEGORIES),
+    [references],
+  );
 
   const allEvents = useMemo(() => {
-    const combined: Event[] = [
-      ...SAMPLE_EVENTS.map((e) => ({ ...e, status: 'published' as const })),
-      ...storeEvents,
-    ];
-    // Remove duplicates by id (store events override sample)
-    const map = new Map<number, Event>();
-    combined.forEach((e) => map.set(e.id, e));
-    let list = Array.from(map.values()).filter((e) => (e.status || 'published') !== 'cancelled');
+    let list = (data || []).filter((e) => (e.status || 'published') !== 'cancelled');
     if (filter !== 'Semua') list = list.filter((e) => e.type === filter);
-    return list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-  }, [storeEvents, filter]);
+    return list;
+  }, [data, filter]);
 
   const renderItem = useCallback(
     ({ item }: { item: Event }) => {
-      const pct = Math.round((item.registered / item.quota) * 100);
+      const pct = item.quota > 0 ? Math.min(100, Math.round((item.registered / item.quota) * 100)) : 0;
       return (
         <Pressable
           onPress={() => router.push(`/event/${item.id}` as any)}
@@ -94,8 +102,18 @@ function EventTabScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <View style={[styles.header, { backgroundColor: colors.card, paddingTop: insets.top + Spacing.md }]}> 
-        <Text style={[styles.headerTitle, { color: colors.text }]}>Event NASUHA</Text>
-        <Text style={[styles.headerSub, { color: colors.textSecondary }]}>Jakarta & Sekitarnya</Text>
+        <View style={styles.headerRow}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.headerTitle, { color: colors.text }]}>Event NASUHA</Text>
+            <Text style={[styles.headerSub, { color: colors.textSecondary }]}>Jakarta & Sekitarnya</Text>
+          </View>
+          {isStaff() && (
+            <Pressable onPress={() => router.push('/event/add' as any)} style={[styles.manageBtn, { backgroundColor: colors.primary }]}>
+              <Ionicons name="add" size={16} color="#FFF" />
+              <Text style={styles.manageBtnText}>Kelola</Text>
+            </Pressable>
+          )}
+        </View>
       </View>
       {/* Event categories */}
       <View style={[styles.filterSection, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
@@ -105,12 +123,12 @@ function EventTabScreen() {
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.filterTitle, { color: colors.text }]}>Kategori Event</Text>
-            <Text style={[styles.filterSub, { color: colors.textSecondary }]}>{EVENT_CATEGORIES.length - 1} kategori tersedia</Text>
+            <Text style={[styles.filterSub, { color: colors.textSecondary }]}>{categories.length - 1} kategori tersedia</Text>
           </View>
           <Ionicons name="options-outline" size={18} color={colors.textMuted} />
         </View>
         <View style={styles.filterGrid}>
-          {EVENT_CATEGORIES.map((category) => {
+          {categories.map((category) => {
             const active = category === filter;
             return (
               <Pressable
@@ -134,7 +152,19 @@ function EventTabScreen() {
         renderItem={renderItem}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        removeClippedSubviews
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />}
+        ListEmptyComponent={
+          loading ? (
+            <ActivityIndicator color={colors.primary} style={{ marginTop: Spacing.xl }} />
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name="calendar-outline" size={40} color={colors.textMuted} />
+              <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+                {error ? error : 'Belum ada event mendatang.'}
+              </Text>
+            </View>
+          )
+        }
       />
     </View>
   );
@@ -147,6 +177,11 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, backgroundColor: 'rgba(255,255,255,0.02)' },
   headerTitle: { fontSize: FontSize.xl, fontWeight: '800', letterSpacing: 0.2 },
   headerSub: { fontSize: FontSize.sm, marginTop: 2, letterSpacing: 0.08 },
+  headerRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
+  manageBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 8, borderRadius: BorderRadius.full },
+  manageBtnText: { color: '#FFF', fontSize: FontSize.sm, fontWeight: '700' },
+  empty: { alignItems: 'center', gap: Spacing.sm, marginTop: Spacing.xl },
+  emptyText: { fontSize: FontSize.sm, textAlign: 'center' },
   filterSection: { paddingHorizontal: Spacing.lg, paddingTop: Spacing.sm, paddingBottom: Spacing.md, borderBottomWidth: StyleSheet.hairlineWidth },
   filterHeader: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm, marginBottom: Spacing.sm },
   filterIcon: { width: 30, height: 30, borderRadius: BorderRadius.sm, alignItems: 'center', justifyContent: 'center' },

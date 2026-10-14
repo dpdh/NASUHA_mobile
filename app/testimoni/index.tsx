@@ -2,34 +2,50 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { memo, useCallback, useMemo, useState } from 'react';
 import {
+    ActivityIndicator,
     FlatList,
+    Image,
     Pressable,
+    RefreshControl,
     ScrollView,
     StyleSheet,
     Text,
     View,
 } from 'react-native';
-import { NASUHA_KORDA, SAMPLE_TESTIMONIALS } from '../../constants/data';
+import { SAMPLE_TESTIMONIALS } from '../../constants/data';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing, getColors } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import type { ApiResult } from '../../services/api';
+import { testimonialApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
 import type { Testimonial } from '../../types';
+
+const FALLBACK_TESTIMONIALS: Testimonial[] = SAMPLE_TESTIMONIALS.map((item) => ({
+  ...item,
+  id: String(item.id),
+  kordaLabel: item.korda,
+}));
 
 const TestimonialCard = memo(({ item, colors }: { item: Testimonial; colors: typeof Colors.light }) => (
   <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
     <View style={styles.cardHeader}>
-      <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
-        <Text style={styles.avatarText}>{item.name.charAt(0)}</Text>
-      </View>
+      {item.avatar ? (
+        <Image source={{ uri: item.avatar }} style={styles.avatar} />
+      ) : (
+        <View style={[styles.avatar, { backgroundColor: colors.primary }]}>
+          <Text style={styles.avatarText}>{item.name.charAt(0)}</Text>
+        </View>
+      )}
       <View style={{ flex: 1 }}>
         <Text style={[styles.name, { color: colors.text }]}>{item.name}</Text>
         <View style={styles.row}>
           <View style={[styles.programBadge, { backgroundColor: colors.gold + '20' }]}>
             <Text style={[styles.programText, { color: colors.gold }]}>{item.program}</Text>
           </View>
-          {item.korda && (
+          {(item.kordaLabel || item.korda) && (
             <View style={[styles.kordaBadge, { backgroundColor: colors.primary + '15' }]}>
               <Ionicons name="location" size={9} color={colors.primary} />
-              <Text style={[styles.kordaText, { color: colors.primary }]}>{item.korda}</Text>
+              <Text style={[styles.kordaText, { color: colors.primary }]} numberOfLines={1}>{item.kordaLabel || item.korda}</Text>
             </View>
           )}
         </View>
@@ -42,6 +58,7 @@ const TestimonialCard = memo(({ item, colors }: { item: Testimonial; colors: typ
       <Text style={[styles.date, { color: colors.textMuted }]}>{new Date(item.date).toLocaleDateString('id-ID', { year: 'numeric', month: 'short' })}</Text>
     </View>
     <Text style={[styles.text, { color: colors.textSecondary }]}>{item.text}</Text>
+    {item.photo ? <Image source={{ uri: item.photo }} style={styles.photo} resizeMode="cover" /> : null}
   </View>
 ));
 
@@ -49,12 +66,34 @@ function TestimoniScreen() {
   const theme = useAppStore((s) => s.theme);
   const colorScheme = useAppStore((s) => s.colorScheme);
   const colors = getColors(colorScheme)[theme];
+  const references = useAppStore((s) => s.references);
   const [activeKorda, setActiveKorda] = useState('Semua');
+  const { data, loading, refreshing, refresh } = useApiQuery<ApiResult<Testimonial[]>>(
+    () => testimonialApi.list({ korda: activeKorda === 'Semua' ? undefined : activeKorda, perPage: 50 }),
+    [activeKorda],
+    {
+      cacheKey: `testimonials_${activeKorda}`,
+      refetchOnFocus: true,
+      fallback: activeKorda === 'Semua' ? { data: FALLBACK_TESTIMONIALS } : undefined,
+    },
+  );
+  // Ringkasan total & jumlah per korda (selalu dari daftar "Semua") untuk chip filter.
+  const { data: summary } = useApiQuery(
+    () => testimonialApi.list({ perPage: 1 }).then((result) => ({
+      total: result.meta?.total ?? 0,
+      kordaCounts: (result.meta?.kordaCounts as Record<string, number> | undefined) ?? {},
+    })),
+    [],
+    { cacheKey: 'testimonials_summary', refetchOnFocus: true },
+  );
 
-  const filtered = useMemo(() => {
-    if (activeKorda === 'Semua') return SAMPLE_TESTIMONIALS;
-    return SAMPLE_TESTIMONIALS.filter((t) => t.korda === activeKorda);
-  }, [activeKorda]);
+  const filtered = data?.data ?? [];
+  const totalCount = summary?.total ?? (activeKorda === 'Semua' ? filtered.length : 0);
+  const kordaChips = useMemo(
+    () => (references?.kordas ?? []).filter((korda) => (summary?.kordaCounts[korda.id] ?? 0) > 0),
+    [references, summary],
+  );
+  const activeLabel = activeKorda === 'Semua' ? 'Semua' : references?.kordas.find((korda) => korda.id === activeKorda)?.label || activeKorda;
 
   const renderItem = useCallback(
     ({ item }: { item: Testimonial }) => <TestimonialCard item={item} colors={colors} />,
@@ -69,21 +108,20 @@ function TestimoniScreen() {
         </Pressable>
         <View style={{ flex: 1, alignItems: 'center' }}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Testimoni Sahabat</Text>
-          <Text style={[styles.headerSub, { color: colors.textSecondary }]}>{SAMPLE_TESTIMONIALS.length} cerita dari {NASUHA_KORDA.length} Korda</Text>
+          <Text style={[styles.headerSub, { color: colors.textSecondary }]}>{totalCount} cerita sahabat NASUHA</Text>
         </View>
         <View style={{ width: 24 }} />
       </View>
 
       {/* Korda Filter */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
-        {['Semua', ...NASUHA_KORDA].map((k) => {
-          const isActive = activeKorda === k;
-          const count = k === 'Semua' ? SAMPLE_TESTIMONIALS.length : SAMPLE_TESTIMONIALS.filter((t) => t.korda === k).length;
-          if (k !== 'Semua' && count === 0) return null;
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
+        {[{ id: 'Semua', label: 'Semua' }, ...kordaChips].map((k) => {
+          const isActive = activeKorda === k.id;
+          const count = k.id === 'Semua' ? totalCount : summary?.kordaCounts[k.id] ?? 0;
           return (
             <Pressable
-              key={k}
-              onPress={() => setActiveKorda(k)}
+              key={k.id}
+              onPress={() => setActiveKorda(k.id)}
               style={[
                 styles.filterChip,
                 {
@@ -94,7 +132,7 @@ function TestimoniScreen() {
               ]}
             >
               <Text style={[styles.filterText, { color: isActive ? '#FFF' : colors.textSecondary }]}>
-                {k === 'Semua' ? 'Semua' : k.replace('Korda ', '')}
+                {k.label.replace('Korda ', '')}
               </Text>
               <View style={[styles.filterCount, { backgroundColor: isActive ? 'rgba(255,255,255,0.18)' : colors.border }]}>
                 <Text style={[styles.filterCountText, { color: isActive ? '#FFF' : colors.textMuted }]}>{count}</Text>
@@ -110,12 +148,16 @@ function TestimoniScreen() {
         renderItem={renderItem}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        removeClippedSubviews
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} />
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Belum ada testimoni dari {activeKorda}</Text>
-          </View>
+          loading ? (
+            <ActivityIndicator style={{ marginTop: Spacing.xxl }} color={colors.primary} />
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name="chatbubbles-outline" size={48} color={colors.textMuted} />
+              <Text style={[styles.emptyText, { color: colors.textMuted }]}>Belum ada testimoni dari {activeLabel}</Text>
+            </View>
+          )
         }
       />
 
@@ -142,6 +184,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: { fontSize: FontSize.xl, fontWeight: '800', letterSpacing: 0.2 },
   headerSub: { fontSize: FontSize.xs, marginTop: 2, letterSpacing: 0.1 },
+  filterScroll: { flexGrow: 0, flexShrink: 0 },
   filterRow: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm, gap: Spacing.sm },
   filterChip: {
     flexDirection: 'row',
@@ -175,6 +218,7 @@ const styles = StyleSheet.create({
   ratingRow: { flexDirection: 'row', alignItems: 'center', gap: 2, marginBottom: Spacing.sm },
   date: { fontSize: FontSize.xs, marginLeft: 'auto' },
   text: { fontSize: FontSize.md, lineHeight: 22 },
+  photo: { width: '100%', height: 180, borderRadius: BorderRadius.md, marginTop: Spacing.sm },
   empty: { alignItems: 'center', paddingTop: Spacing.xxl, gap: Spacing.sm },
   emptyText: { fontSize: FontSize.md },
   fab: { position: 'absolute', bottom: 24, right: 20, width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center' },

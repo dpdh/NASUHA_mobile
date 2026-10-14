@@ -1,7 +1,15 @@
 import React, { memo, useState, useCallback, useRef, useEffect } from 'react';
 import {
-  View, Text, StyleSheet, FlatList, TextInput, Pressable, KeyboardAvoidingView, Platform, Image,
+  View,
+  Text,
+  StyleSheet,
+  FlatList,
+  TextInput,
+  Pressable,
+  KeyboardAvoidingView,
+  Image,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -75,11 +83,13 @@ const MessageBubble = memo(({ msg, colors }: { msg: ChatMessage; colors: typeof 
     </View>
   );
 });
+MessageBubble.displayName = 'MessageBubble';
 
 function AsistenScreen() {
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
   const colors = Colors[theme];
+  const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);
@@ -136,7 +146,7 @@ function AsistenScreen() {
   );
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         {/* Header */}
         <LinearGradient colors={['#00B4D8', '#0077B6']} style={styles.header}>
@@ -216,7 +226,7 @@ function AsistenScreen() {
         />
 
         {/* Input Bar */}
-        <View style={[styles.inputBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+        <View style={[styles.inputBar, { paddingBottom: Spacing.sm + insets.bottom, backgroundColor: colors.card, borderTopColor: colors.border }]}>
           <View style={[styles.inputBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <TextInput
               style={[styles.textInput, { color: colors.text }]}

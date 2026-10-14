@@ -12,9 +12,13 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
 import { MOTIVASI_CATEGORIES, MOTIVASI_ARTICLES, MOTIVASI_QUOTES } from '../../constants/data';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
+import type { ArticleSummary, Motivasi, MotivasiCategory } from '../../types';
 
-type Article = (typeof MOTIVASI_ARTICLES)[0];
+type Article = Pick<ArticleSummary, 'title' | 'summary' | 'author' | 'readTime' | 'icon'> & { id: string | number };
 
+// Pemetaan lama kategori → tag quote, hanya dipakai saat data server tidak tersedia.
 const CATEGORY_QUOTE_MAP: Record<string, string[]> = {
   aqidah: ['Al-Quran', 'Hijrah'],
   akhlaq: ['Persahabatan', 'Komunitas'],
@@ -55,20 +59,27 @@ function CategoryDetailScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
 
-  const category = useMemo(
-    () => MOTIVASI_CATEGORIES.find((c) => c.id === categoryId),
-    [categoryId],
+  const { data: remote } = useApiQuery(() => contentApi.motivasiCategory(categoryId ?? ''), [categoryId], {
+    cacheKey: `motivasi_category_${categoryId}`,
+    enabled: Boolean(categoryId),
+  });
+
+  const category: MotivasiCategory | undefined = useMemo(() => {
+    if (remote) return remote;
+    const local = MOTIVASI_CATEGORIES.find((c) => c.id === categoryId);
+    return local ? { ...local, gradient: [...local.gradient] } : undefined;
+  }, [remote, categoryId]);
+
+  const articles: Article[] = useMemo(
+    () => remote?.articles ?? MOTIVASI_ARTICLES.filter((a) => a.categoryId === categoryId),
+    [remote, categoryId],
   );
 
-  const articles = useMemo(
-    () => MOTIVASI_ARTICLES.filter((a) => a.categoryId === categoryId),
-    [categoryId],
-  );
-
-  const relatedQuotes = useMemo(() => {
+  const relatedQuotes: Motivasi[] = useMemo(() => {
+    if (remote) return remote.quote ? [remote.quote] : [];
     const tags = CATEGORY_QUOTE_MAP[categoryId ?? ''] ?? [];
     return MOTIVASI_QUOTES.filter((q) => tags.includes(q.category));
-  }, [categoryId]);
+  }, [remote, categoryId]);
 
   const renderArticle = useCallback(
     ({ item }: { item: Article }) => (
@@ -124,7 +135,6 @@ function CategoryDetailScreen() {
         ListHeaderComponent={headerComponent}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        removeClippedSubviews
       />
     </View>
   );

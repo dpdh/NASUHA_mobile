@@ -4,29 +4,40 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAppStore } from '../store/appStore';
 import { getColors } from '../constants/theme';
+import { useApiQuery } from '../hooks/useApiQuery';
+import { contentApi } from '../services/nasjakApi';
+
+const FALLBACK_FEATURES = [
+  'Al-Quran & Hadis lengkap dengan terjemahan',
+  'Riyadhoh & tracking ibadah harian',
+  'Program LBU & TSN',
+  'Motivasi & 260+ Kalimat Muhasabah',
+  'Lapak Sahabat NASUHA',
+  'Asisten Anas AI',
+  'Media Sosial & Kegiatan',
+  'Event Management (TSN, LBU, KFM, TOT, dll)',
+];
+
+function formatDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+}
 
 export default function AboutScreen() {
   const theme = useAppStore((s) => s.theme);
   const colorScheme = useAppStore((s) => s.colorScheme);
   const colors = getColors(colorScheme)[theme];
 
-  const features = [
-    'Al-Quran & Hadis lengkap dengan terjemahan',
-    'Riyadhoh & tracking ibadah harian',
-    'Program LBU & TSN',
-    'Motivasi & 260+ Kalimat Muhasabah',
-    'Lapak Sahabat NASUHA',
-    'Asisten Anas AI',
-    'Media Sosial & Kegiatan',
-    'Event Management (TSN, LBU, KFM, TOT, dll)',
-  ];
+  const { data: config } = useApiQuery(() => contentApi.config(), [], { cacheKey: 'config' });
+  const app = config?.app;
+  const features = app?.features?.length ? app.features : FALLBACK_FEATURES;
 
   const info = [
-    { label: 'Dibuat oleh', value: 'Dani Hamdani' },
-    { label: 'Organisasi', value: 'NASUHA' },
-    { label: 'Tanggal Rilis', value: '8 Agustus 2026' },
-    { label: 'Website', value: 'nasuha.org' },
-    { label: 'Instagram', value: '@nasuhajakarta' },
+    { label: 'Dibuat oleh', value: app?.author || 'Dani Hamdani' },
+    { label: 'Organisasi', value: app?.organization || 'NASUHA' },
+    { label: 'Tanggal Rilis', value: formatDate(app?.releaseDate || '2026-08-08') },
+    { label: 'Website', value: (app?.website || 'nasuha.org').replace(/^https?:\/\//, '') },
+    { label: 'Instagram', value: `@${config?.contact.instagram || 'nasuhajakarta'}` },
   ];
 
   return (
@@ -40,10 +51,10 @@ export default function AboutScreen() {
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border }]}>
-          <Text style={[styles.title, { color: colors.primary }]}>NASUHA App</Text>
-          <Text style={[styles.version, { color: colors.gold }]}>Versi 1.0.0</Text>
+          <Text style={[styles.title, { color: colors.primary }]}>{app?.name || 'NASUHA App'}</Text>
+          <Text style={[styles.version, { color: colors.gold }]}>Versi {app?.latestVersion || '1.0.0'}</Text>
           <Text style={[styles.description, { color: colors.text }]}>Aplikasi resmi komunitas NASUHA.</Text>
-          <Text style={[styles.tagline, { color: colors.textSecondary }]}>Hijrah Bersama, Tumbuh Bersama, Bebas Utang Bersama.</Text>
+          <Text style={[styles.tagline, { color: colors.textSecondary }]}>{app?.tagline || 'Hijrah Bersama, Tumbuh Bersama, Bebas Utang Bersama'}.</Text>
         </View>
 
         <View style={[styles.section, { backgroundColor: colors.card, borderColor: colors.border }]}>

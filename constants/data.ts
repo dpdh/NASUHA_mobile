@@ -586,7 +586,7 @@ export const KORDA_CONTACTS = [
   { id: 4, region: 'Tangerang', ketua: 'Pak Alif', phone: '081572102625', icon: 'map' },
   { id: 5, region: 'Depok, Bogor & Sukabumi', ketua: 'Pak Yazid', phone: '087818180202', icon: 'trail-sign' },
   { id: 6, region: 'Bekasi, Karawang & Purwakarta', ketua: 'Pak Asngari', phone: '081381852513', icon: 'compass' },
-  { id: 7, region: 'Bandung', ketua: 'Pak Badrus', phone: '081122200662', icon: 'mountain' },
+  { id: 7, region: 'Bandung', ketua: 'Pak Badrus', phone: '081122200662', icon: 'flower' },
   { id: 8, region: 'Banyumas Raya', ketua: 'Pak Faizin', phone: '081214514020', icon: 'earth' },
   { id: 9, region: 'Jateng & DIY', ketua: 'Pak Septian', phone: '081390317971', icon: 'navigate' },
   { id: 10, region: 'Kalimantan Barat', ketua: 'Pak Amna', phone: '085821859544', icon: 'boat' },

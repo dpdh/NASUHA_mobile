@@ -1,4 +1,4 @@
-import React, { memo, useState, useCallback } from 'react';
+import React, { memo, useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -16,19 +16,26 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
-import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
+import { Colors, Spacing, BorderRadius, FontSize } from '../../constants/theme';
+import { contentApi } from '../../services/nasjakApi';
+import type { Korda } from '../../types';
 
 const GENDER_OPTIONS = ['Laki-laki', 'Perempuan'] as const;
 
-const REGION_OPTIONS = [
-  'Jakarta Pusat', 'Jakarta Utara', 'Jakarta Timur', 'Jakarta Selatan', 'Jakarta Barat',
-  'Bogor', 'Depok', 'Tangerang', 'Bekasi', 'Lainnya',
-];
+// Backend menyimpan YYYY-MM-DD; form memakai DD/MM/YYYY.
+function toDisplayDate(value?: string | null) {
+  if (!value) return '';
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
 
 function EditProfileScreen() {
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
   const updateProfile = useAppStore((s) => s.updateProfile);
+  const uploadAvatar = useAppStore((s) => s.uploadAvatar);
+  const removeAvatar = useAppStore((s) => s.removeAvatar);
+  const references = useAppStore((s) => s.references);
   const colors = Colors[theme];
 
   const [name, setName] = useState(user?.name || '');
@@ -36,12 +43,20 @@ function EditProfileScreen() {
   const [bio, setBio] = useState(user?.bio || '');
   const [city, setCity] = useState(user?.city || '');
   const [address, setAddress] = useState(user?.address || '');
-  const [gender, setGender] = useState<'laki-laki' | 'perempuan' | undefined>(user?.gender);
-  const [birthDate, setBirthDate] = useState(user?.birthDate || '');
+  const [gender, setGender] = useState<'laki-laki' | 'perempuan' | undefined>(user?.gender || undefined);
+  const [birthDate, setBirthDate] = useState(toDisplayDate(user?.birthDate));
   const [occupation, setOccupation] = useState(user?.occupation || '');
   const [nasuhaRegion, setNasuhaRegion] = useState(user?.nasuhaRegion || '');
   const [avatar, setAvatar] = useState(user?.avatar || '');
   const [saving, setSaving] = useState(false);
+  const [kordas, setKordas] = useState<Korda[]>(references?.kordas || []);
+
+  useEffect(() => {
+    if (kordas.length) return;
+    contentApi.kordas().then(setKordas).catch(() => {});
+  }, [kordas.length]);
+
+  const selectedKorda = kordas.find((korda) => korda.id === nasuhaRegion);
 
   const pickImage = useCallback(async (source: 'camera' | 'gallery') => {
     const permMethod = source === 'camera'
@@ -106,26 +121,45 @@ function EditProfileScreen() {
     }
 
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const result = await updateProfile({
+        name: name.trim(),
+        phone: phone.trim() || null,
+        bio: bio.trim() || null,
+        city: city.trim() || null,
+        address: address.trim() || null,
+        gender: gender || null,
+        birthDate: birthDate.trim() || null,
+        occupation: occupation.trim() || null,
+        nasuhaRegion: nasuhaRegion || null,
+      });
+      if (!result.success) {
+        Alert.alert('Gagal Menyimpan', result.error || 'Profil gagal diperbarui');
+        return;
+      }
 
-    updateProfile({
-      name: name.trim(),
-      phone: phone.trim() || undefined,
-      bio: bio.trim() || undefined,
-      city: city.trim() || undefined,
-      address: address.trim() || undefined,
-      gender,
-      birthDate: birthDate.trim() || undefined,
-      occupation: occupation.trim() || undefined,
-      nasuhaRegion: nasuhaRegion || undefined,
-      avatar: avatar || undefined,
-    });
+      const currentAvatar = user?.avatar || '';
+      if (avatar && avatar !== currentAvatar) {
+        const upload = await uploadAvatar(avatar);
+        if (!upload.success) {
+          Alert.alert('Foto Gagal Diunggah', upload.error || 'Data profil tersimpan, tetapi foto gagal diunggah.');
+          return;
+        }
+      } else if (!avatar && currentAvatar) {
+        const removal = await removeAvatar();
+        if (!removal.success) {
+          Alert.alert('Foto Gagal Dihapus', removal.error || 'Data profil tersimpan, tetapi foto gagal dihapus.');
+          return;
+        }
+      }
 
-    setSaving(false);
-    Alert.alert('Berhasil', 'Profil berhasil diperbarui', [
-      { text: 'OK', onPress: () => router.back() },
-    ]);
-  }, [name, phone, bio, city, address, gender, birthDate, occupation, nasuhaRegion, avatar, updateProfile]);
+      Alert.alert('Berhasil', 'Profil berhasil diperbarui', [
+        { text: 'OK', onPress: () => router.back() },
+      ]);
+    } finally {
+      setSaving(false);
+    }
+  }, [name, phone, bio, city, address, gender, birthDate, occupation, nasuhaRegion, avatar, user?.avatar, updateProfile, uploadAvatar, removeAvatar]);
 
   const [showRegionPicker, setShowRegionPicker] = useState(false);
 
@@ -213,27 +247,38 @@ function EditProfileScreen() {
 
           {/* Region Picker */}
           <View style={styles.fieldGroup}>
-            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Wilayah NASUHA</Text>
+            <Text style={[styles.fieldLabel, { color: colors.textSecondary }]}>Korda NASUHA</Text>
             <Pressable
               onPress={() => setShowRegionPicker(!showRegionPicker)}
               style={[styles.pickerBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
             >
               <Ionicons name="map-outline" size={18} color={colors.textMuted} />
               <Text style={[styles.pickerText, { color: nasuhaRegion ? colors.text : colors.textMuted }]}>
-                {nasuhaRegion || 'Pilih wilayah NASUHA'}
+                {selectedKorda?.label || nasuhaRegion || 'Pilih korda NASUHA'}
               </Text>
               <Ionicons name={showRegionPicker ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textMuted} />
             </Pressable>
             {showRegionPicker && (
               <View style={[styles.regionList, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-                {REGION_OPTIONS.map((r) => (
+                {kordas.length === 0 && (
+                  <Text style={[styles.regionText, { color: colors.textMuted, padding: Spacing.md }]}>Memuat daftar korda...</Text>
+                )}
+                {nasuhaRegion ? (
                   <Pressable
-                    key={r}
-                    onPress={() => { setNasuhaRegion(r); setShowRegionPicker(false); }}
-                    style={[styles.regionItem, nasuhaRegion === r && { backgroundColor: colors.primary + '15' }]}
+                    onPress={() => { setNasuhaRegion(''); setShowRegionPicker(false); }}
+                    style={styles.regionItem}
                   >
-                    <Text style={[styles.regionText, { color: nasuhaRegion === r ? colors.primary : colors.text }]}>{r}</Text>
-                    {nasuhaRegion === r && <Ionicons name="checkmark" size={18} color={colors.primary} />}
+                    <Text style={[styles.regionText, { color: colors.textMuted }]}>Kosongkan pilihan</Text>
+                  </Pressable>
+                ) : null}
+                {kordas.map((korda) => (
+                  <Pressable
+                    key={korda.id}
+                    onPress={() => { setNasuhaRegion(korda.id); setShowRegionPicker(false); }}
+                    style={[styles.regionItem, nasuhaRegion === korda.id && { backgroundColor: colors.primary + '15' }]}
+                  >
+                    <Text style={[styles.regionText, { color: nasuhaRegion === korda.id ? colors.primary : colors.text }]}>{korda.label}</Text>
+                    {nasuhaRegion === korda.id && <Ionicons name="checkmark" size={18} color={colors.primary} />}
                   </Pressable>
                 ))}
               </View>
@@ -266,7 +311,7 @@ function EditProfileScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.infoTitle, { color: colors.text }]}>Data Aman</Text>
             <Text style={[styles.infoText, { color: colors.textSecondary }]}>
-              Data profil Anda tersimpan di perangkat. User ID: {user.id}
+              Data profil tersimpan di server NASUHA dan tersinkron di semua perangkat Anda.{user.memberNumber ? ` No. anggota: ${user.memberNumber}` : ''}
             </Text>
             <Text style={[styles.infoText, { color: colors.textMuted }]}>
               Bergabung sejak: {new Date(user.joinDate).toLocaleDateString('id-ID', { year: 'numeric', month: 'long', day: 'numeric' })}
@@ -315,6 +360,8 @@ const FieldInput = memo(({
     </View>
   </View>
 ));
+
+FieldInput.displayName = 'FieldInput';
 
 export default memo(EditProfileScreen);
 

@@ -15,6 +15,8 @@ import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Spacing, BorderRadius, FontSize, Shadows, getColors } from '../../constants/theme';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi, meApi } from '../../services/nasjakApi';
 
 const LOGO_BADGE = require('../../assets/images/logo-icon.png');
 
@@ -29,6 +31,7 @@ interface MenuItem {
 const ROLE_LABELS: Record<string, string> = {
   super_admin: 'Super Admin',
   admin: 'Admin',
+  ustadz: 'Ustadz',
   sahabat: 'Sahabat NASUHA',
   calon_sahabat: 'Calon Sahabat',
 };
@@ -36,16 +39,44 @@ const ROLE_LABELS: Record<string, string> = {
 const ROLE_COLORS: Record<string, string> = {
   super_admin: '#FF6B6B',
   admin: '#D4A853',
+  ustadz: '#16A34A',
   sahabat: '#2EC4B6',
   calon_sahabat: '#999999',
 };
+
+const MEMBERSHIP_LABELS: Record<string, { label: string; color: string }> = {
+  free: { label: 'Free Member', color: '#999999' },
+  membership: { label: 'Membership', color: '#2EC4B6' },
+  sahabat: { label: 'Sahabat NASUHA', color: '#D4A853' },
+};
+
+const ABOUT_FEATURES = [
+  'Al-Quran & Hadis lengkap dengan terjemahan',
+  'Riyadhoh & tracking ibadah harian',
+  'Program LBU & TSN',
+  'Motivasi & 260+ Kalimat Muhasabah',
+  'Lapak Sahabat NASUHA',
+  'Asisten Anas AI',
+  'Media Sosial & Kegiatan',
+  'Event Management (TSN, LBU, KFM, TOT, dll)',
+];
+
+function formatBirthDate(value: string) {
+  const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value;
+}
+
+function formatReleaseDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' });
+}
 
 function ProfileScreen() {
   const theme = useAppStore((s) => s.theme);
   const colorScheme = useAppStore((s) => s.colorScheme);
   const user = useAppStore((s) => s.user);
   const logout = useAppStore((s) => s.logout);
-  const members = useAppStore((s) => s.members);
+  const references = useAppStore((s) => s.references);
   const bookmarkedAyahs = useAppStore((s) => s.bookmarkedAyahs);
   const bookmarkedHadiths = useAppStore((s) => s.bookmarkedHadiths);
   const colors = getColors(colorScheme)[theme];
@@ -54,6 +85,18 @@ function ProfileScreen() {
   const isGuest = !user;
   const totalBookmarks = bookmarkedAyahs.length + bookmarkedHadiths.length;
   const [showAbout, setShowAbout] = useState(false);
+  const { data: stats } = useApiQuery(() => meApi.stats(), [user?.id], {
+    enabled: Boolean(user),
+    refetchOnFocus: true,
+  });
+  const { data: config } = useApiQuery(() => contentApi.config(), [], { cacheKey: 'config' });
+  const appVersion = config?.app.latestVersion || '1.0.0';
+  const releaseDate = formatReleaseDate(config?.app.releaseDate || '2026-08-08');
+  const kordaLabel = user?.nasuhaRegion
+    ? references?.kordas.find((korda) => korda.id === user.nasuhaRegion)?.label || user.nasuhaRegion
+    : null;
+  const membership = user ? MEMBERSHIP_LABELS[user.membershipType || 'free'] : null;
+  const bookmarkCount = stats ? stats.bookmarks.ayah + stats.bookmarks.hadith : totalBookmarks;
 
   const handleLogin = useCallback(() => {
     router.push('/(auth)/login' as any);
@@ -69,22 +112,22 @@ function ProfileScreen() {
           {
             icon: 'shield-checkmark' as const,
             label: 'CMS Admin Panel',
-            sub: `${members.length} user · Kelola User & Lapak`,
+            sub: 'Kelola User, Lapak, Event & Membership',
             color: '#FF6B6B',
             action: () => router.push('/admin/' as any),
           },
         ]
       : []),
     { icon: 'person-outline' as const, label: 'Edit Profil', sub: 'Ubah foto dan data diri', action: () => router.push('/profile/edit' as any) },
-    { icon: 'storefront-outline' as const, label: 'Dagangan Saya', sub: 'Kelola lapak jualan Anda', action: () => router.push('/lapak/' as any) },
+    { icon: 'storefront-outline' as const, label: 'Dagangan Saya', sub: 'Kelola lapak jualan Anda', action: () => router.push('/lapak?mine=1' as any) },
     { icon: 'settings-outline' as const, label: 'Pengaturan', sub: 'Tema, Ukuran Huruf & Lainnya', color: colors.primary, action: () => router.push('/settings' as any) },
     { icon: 'bookmark-outline' as const, label: 'Bookmark', sub: `${totalBookmarks} tersimpan`, action: () => router.push('/bookmarks/' as any) },
-    { icon: 'information-circle-outline' as const, label: 'Tentang NASUHA App', sub: 'v1.0.0 · 8 Agustus 2026', action: () => setShowAbout(true) },
+    { icon: 'information-circle-outline' as const, label: 'Tentang NASUHA App', sub: `v${appVersion} · ${releaseDate}`, action: () => setShowAbout(true) },
   ];
 
   const handleLogout = useCallback(() => {
-    const completeLogout = () => {
-      logout();
+    const completeLogout = async () => {
+      await logout();
       router.replace('/(auth)/login' as any);
     };
 
@@ -139,12 +182,20 @@ function ProfileScreen() {
               )}
             </View>
             <Text style={[styles.email, { color: colors.textSecondary }]}>{user?.email || 'Belum login'}</Text>
+            {membership && (
+              <View style={[styles.membershipBadge, { backgroundColor: membership.color + '20' }]}>
+                <Ionicons name="ribbon-outline" size={11} color={membership.color} />
+                <Text style={[styles.membershipText, { color: membership.color }]}>
+                  {membership.label}{user?.memberNumber ? ` · ${user.memberNumber}` : ''}
+                </Text>
+              </View>
+            )}
             {user?.bio && <Text style={[styles.bio, { color: colors.textMuted }]} numberOfLines={1}>{user.bio}</Text>}
-            {(user?.city || user?.nasuhaRegion) && (
+            {(user?.city || kordaLabel) && (
               <View style={styles.locationRow}>
                 <Ionicons name="location-outline" size={12} color={colors.textMuted} />
                 <Text style={[styles.locationText, { color: colors.textMuted }]}>
-                  {[user.city, user.nasuhaRegion].filter(Boolean).join(' · ')}
+                  {[user?.city, kordaLabel].filter(Boolean).join(' · ')}
                 </Text>
               </View>
             )}
@@ -155,24 +206,24 @@ function ProfileScreen() {
         {/* Stats */}
         <View style={styles.statsRow}>
           <View style={styles.statItem}>
-            <Text style={[styles.statVal, { color: colors.primary }]}>0</Text>
-            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Riyadhoh</Text>
+            <Text style={[styles.statVal, { color: colors.primary }]}>{stats?.riyadhoh.currentStreak ?? 0}</Text>
+            <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Streak Riyadhoh</Text>
           </View>
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
           <View style={styles.statItem}>
-            <Text style={[styles.statVal, { color: colors.gold }]}>0</Text>
+            <Text style={[styles.statVal, { color: colors.gold }]}>{stats?.tsnAttendance ?? 0}</Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>TSN</Text>
           </View>
           <View style={[styles.statDivider, { backgroundColor: colors.border }]} />
           <View style={styles.statItem}>
-            <Text style={[styles.statVal, { color: colors.success }]}>{totalBookmarks}</Text>
+            <Text style={[styles.statVal, { color: colors.success }]}>{bookmarkCount}</Text>
             <Text style={[styles.statLabel, { color: colors.textSecondary }]}>Bookmark</Text>
           </View>
         </View>
       </View>
 
       {/* User Detail Card */}
-      {user && (user.phone || user.occupation || user.gender) && (
+      {user && (user.phone || user.occupation || user.gender || user.birthDate) && (
         <View style={[styles.detailCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
           {user.phone && (
             <View style={styles.detailRow}>
@@ -197,14 +248,14 @@ function ProfileScreen() {
           {user.birthDate && (
             <View style={styles.detailRow}>
               <Ionicons name="calendar-outline" size={16} color={colors.textMuted} />
-              <Text style={[styles.detailText, { color: colors.text }]}>{user.birthDate}</Text>
+              <Text style={[styles.detailText, { color: colors.text }]}>{formatBirthDate(user.birthDate)}</Text>
             </View>
           )}
         </View>
       )}
 
       {/* Badge */}
-      <View style={[styles.badgeCard, Shadows.gold]}>
+      <View style={[styles.badgeCard, { backgroundColor: colors.card }, Shadows.gold]}>
         <Image source={LOGO_BADGE} style={styles.badgeImage} resizeMode="contain" />
         <View style={{ flex: 1 }}>
           <Text style={[styles.badgeTitle, { color: colors.gold }]}>NASUHA</Text>
@@ -268,27 +319,18 @@ function ProfileScreen() {
           <Pressable style={[styles.modalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
             <View style={styles.modalHandle} />
             <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: 500 }}>
-              <Text style={[styles.aboutTitle, { color: colors.primary }]}>NASUHA App</Text>
-              <Text style={[styles.aboutVersion, { color: colors.gold }]}>Versi 1.0.0</Text>
+              <Text style={[styles.aboutTitle, { color: colors.primary }]}>{config?.app.name || 'NASUHA App'}</Text>
+              <Text style={[styles.aboutVersion, { color: colors.gold }]}>Versi {appVersion}</Text>
 
               <Text style={[styles.aboutDesc, { color: colors.text }]}>
                 Aplikasi resmi komunitas NASUHA.
               </Text>
               <Text style={[styles.aboutTagline, { color: colors.textSecondary }]}>
-                Hijrah Bersama, Tumbuh Bersama, Bebas Utang Bersama.
+                {config?.app.tagline || 'Hijrah Bersama, Tumbuh Bersama, Bebas Utang Bersama'}.
               </Text>
 
               <Text style={[styles.aboutSectionTitle, { color: colors.text }]}>Fitur Utama</Text>
-              {[
-                'Al-Quran & Hadis lengkap dengan terjemahan',
-                'Riyadhoh & tracking ibadah harian',
-                'Program LBU & TSN',
-                'Motivasi & 260+ Kalimat Muhasabah',
-                'Lapak Sahabat NASUHA',
-                'Asisten Anas AI',
-                'Media Sosial & Kegiatan',
-                'Event Management (TSN, LBU, KFM, TOT, dll)',
-              ].map((f, i) => (
+              {(config?.app.features?.length ? config.app.features : ABOUT_FEATURES).map((f, i) => (
                 <View key={i} style={styles.aboutFeatureRow}>
                   <Ionicons name="checkmark-circle" size={14} color={colors.success} />
                   <Text style={[styles.aboutFeatureText, { color: colors.textSecondary }]}>{f}</Text>
@@ -299,11 +341,11 @@ function ProfileScreen() {
 
               <Text style={[styles.aboutSectionTitle, { color: colors.text }]}>Informasi</Text>
               {[
-                { label: 'Dibuat oleh', value: 'Dani Hamdani' },
-                { label: 'Organisasi', value: 'NASUHA' },
-                { label: 'Tanggal Rilis', value: '8 Agustus 2026' },
-                { label: 'Website', value: 'nasuha.org' },
-                { label: 'Instagram', value: '@nasuhajakarta' },
+                { label: 'Dibuat oleh', value: config?.app.author || 'Dani Hamdani' },
+                { label: 'Organisasi', value: config?.app.organization || 'NASUHA' },
+                { label: 'Tanggal Rilis', value: releaseDate },
+                { label: 'Website', value: (config?.app.website || 'nasuha.org').replace(/^https?:\/\//, '') },
+                { label: 'Instagram', value: `@${config?.contact.instagram || 'nasuhajakarta'}` },
               ].map((info, i) => (
                 <View key={i} style={styles.aboutInfoRow}>
                   <Text style={[styles.aboutInfoLabel, { color: colors.textMuted }]}>{info.label}</Text>
@@ -345,6 +387,8 @@ const styles = StyleSheet.create({
   locationText: { fontSize: FontSize.xs },
   roleBadge: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: BorderRadius.sm },
   roleText: { fontSize: FontSize.xs, fontWeight: '700' },
+  membershipBadge: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 4, paddingHorizontal: 8, paddingVertical: 2, borderRadius: BorderRadius.sm, marginTop: 4 },
+  membershipText: { fontSize: FontSize.xs, fontWeight: '700' },
   statsRow: { flexDirection: 'row', paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
   statItem: { flex: 1, alignItems: 'center' },
   statVal: { fontSize: FontSize.xxl, fontWeight: '800' },

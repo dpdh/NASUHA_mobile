@@ -1,8 +1,13 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
-import React, { memo, useState } from 'react';
+import React, { memo, useCallback, useState } from 'react';
 import {
+    Alert,
+    Linking,
     Modal,
+    Platform,
     Pressable,
     ScrollView,
     StyleSheet,
@@ -10,10 +15,27 @@ import {
     Text,
     View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { ColorScheme } from '../../constants/theme';
 import { BorderRadius, COLOR_SCHEMES, FontSize, getColors, Spacing } from '../../constants/theme';
 import { fetchPrayerTimes, requestNotificationPermission, rescheduleNotifications, type PrayerTimes } from '../../services/prayer';
+import { errorMessage } from '../../services/api';
+import { contentApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
+
+const APP_VERSION = Constants.expoConfig?.version || '1.0.0';
+const CACHE_PREFIXES = ['@nasjak_cache_', '@nasjak_quran_', '@nasjak_hadis_'];
+
+// Bandingkan versi semver sederhana: >0 bila a lebih baru dari b.
+function compareVersions(a: string, b: string) {
+  const left = a.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  const right = b.split('.').map((part) => Number.parseInt(part, 10) || 0);
+  for (let index = 0; index < Math.max(left.length, right.length); index += 1) {
+    const diff = (left[index] || 0) - (right[index] || 0);
+    if (diff !== 0) return diff;
+  }
+  return 0;
+}
 
 interface SettingItem {
   id: string;
@@ -81,6 +103,8 @@ const SettingsGroup = memo(({ title, items, colors }: {
   </View>
 ));
 
+SettingsGroup.displayName = 'SettingsGroup';
+
 function SettingsScreen() {
   const theme = useAppStore((s) => s.theme);
   const toggleTheme = useAppStore((s) => s.toggleTheme);
@@ -94,8 +118,49 @@ function SettingsScreen() {
   const updateNotificationSettings = useAppStore((s) => s.updateNotificationSettings);
   const prayerLocation = useAppStore((s) => s.prayerLocation);
   const colors = getColors(colorScheme)[theme];
+  const insets = useSafeAreaInsets();
 
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState<string | null>(null);
+
+  const handleClearCache = useCallback(async () => {
+    try {
+      const keys = await AsyncStorage.getAllKeys();
+      const cacheKeys = keys.filter((key) => CACHE_PREFIXES.some((prefix) => key.startsWith(prefix)));
+      if (cacheKeys.length) await AsyncStorage.multiRemove(cacheKeys);
+      Alert.alert('Cache Dibersihkan', `${cacheKeys.length} data cache dihapus. Data akan dimuat ulang dari server.`);
+    } catch {
+      Alert.alert('Gagal', 'Cache tidak dapat dibersihkan. Coba lagi.');
+    }
+  }, []);
+
+  const handleCheckUpdate = useCallback(async () => {
+    setCheckingUpdate(true);
+    try {
+      const config = await contentApi.config();
+      const latest = config.app.latestVersion;
+      const storeUrl = Platform.OS === 'ios' ? config.app.storeUrl.ios : config.app.storeUrl.android;
+      if (compareVersions(latest, APP_VERSION) > 0) {
+        const mustUpdate = compareVersions(config.app.minSupportedVersion, APP_VERSION) > 0;
+        setUpdateStatus(`Versi ${latest} tersedia`);
+        Alert.alert(
+          mustUpdate ? 'Update Wajib' : 'Update Tersedia',
+          `Versi ${latest} sudah tersedia (versi Anda ${APP_VERSION}).`,
+          storeUrl
+            ? [{ text: 'Nanti', style: 'cancel' }, { text: 'Update', onPress: () => Linking.openURL(storeUrl).catch(() => {}) }]
+            : [{ text: 'OK' }],
+        );
+      } else {
+        setUpdateStatus('Sudah versi terbaru');
+        Alert.alert('Sudah Terbaru', `Aplikasi Anda (v${APP_VERSION}) sudah versi terbaru.`);
+      }
+    } catch (error) {
+      Alert.alert('Gagal Cek Update', errorMessage(error));
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }, []);
   const [showQuranSizeModal, setShowQuranSizeModal] = useState(false);
   const [showHadithSizeModal, setShowHadithSizeModal] = useState(false);
 
@@ -191,9 +256,9 @@ function SettingsScreen() {
       id: 'cache',
       icon: 'trash-outline',
       label: 'Hapus Cache',
-      description: 'Bersihkan data cache aplikasi',
+      description: 'Bersihkan cache Al-Quran, Hadis & konten server',
       type: 'link',
-      onPress: () => {},
+      onPress: handleClearCache,
       color: '#FF8C42',
     },
   ];
@@ -266,7 +331,7 @@ function SettingsScreen() {
       id: 'version',
       icon: 'information-circle-outline',
       label: 'Versi Aplikasi',
-      description: 'v1.0.0 · Build 1',
+      description: `v${APP_VERSION}`,
       type: 'value',
       color: colors.primary,
     },
@@ -274,9 +339,9 @@ function SettingsScreen() {
       id: 'update',
       icon: 'cloud-download-outline',
       label: 'Cek Update',
-      description: 'Versi terbaru tersedia',
+      description: checkingUpdate ? 'Memeriksa...' : updateStatus || 'Periksa versi terbaru aplikasi',
       type: 'link',
-      onPress: () => {},
+      onPress: checkingUpdate ? undefined : handleCheckUpdate,
       color: colors.success,
     },
   ];
@@ -284,7 +349,7 @@ function SettingsScreen() {
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       {/* Header */}
-      <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing.sm, backgroundColor: colors.card, borderBottomColor: colors.border }]}>
         <Pressable onPress={() => router.back()} hitSlop={12}>
           <Ionicons name="arrow-back" size={24} color={colors.text} />
         </Pressable>
@@ -504,7 +569,8 @@ const styles = StyleSheet.create({
   sizeControl: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.md, marginBottom: Spacing.lg },
   sizeBtn: { width: 44, height: 44, borderRadius: 10, alignItems: 'center', justifyContent: 'center' },
   sizeValue: { fontSize: FontSize.lg, fontWeight: '700', minWidth: 70, textAlign: 'center' },
-  sizeSlider: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.sm, marginBottom: Spacing.lg },
-  sizePreset: { flex: 1, minWidth: '30%', paddingVertical: Spacing.sm, borderRadius: BorderRadius.md, alignItems: 'center', justifyContent: 'center' },
+  // Lebar tetap per tile: flex:1 di dalam flexWrap membuat tinggi baris salah hitung di Android.
+  sizeSlider: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', rowGap: Spacing.sm, marginBottom: Spacing.lg },
+  sizePreset: { width: '31%', height: 48, borderRadius: BorderRadius.md, alignItems: 'center', justifyContent: 'center' },
   sizePresetText: { fontWeight: '600' },
 });

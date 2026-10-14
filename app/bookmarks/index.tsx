@@ -1,15 +1,31 @@
-import React, { memo } from 'react';
+import React, { memo, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { BorderRadius, Colors, FontSize, Spacing } from '../../constants/theme';
+import { fetchHadisCollections } from '../../services/hadisApi';
+import { fetchAllSurahs } from '../../services/quranApi';
 
 function BookmarksScreen() {
   const theme = useAppStore((state) => state.theme);
   const bookmarkedAyahs = useAppStore((state) => state.bookmarkedAyahs);
   const bookmarkedHadiths = useAppStore((state) => state.bookmarkedHadiths);
+  const toggleBookmarkAyah = useAppStore((state) => state.toggleBookmarkAyah);
+  const toggleBookmarkHadith = useAppStore((state) => state.toggleBookmarkHadith);
   const colors = Colors[theme];
+  const [surahNames, setSurahNames] = useState<Record<string, string>>({});
+  const [kitabNames, setKitabNames] = useState<Record<string, string>>({});
+
+  // Nama surah & kitab dari cache API (best effort; tanpa jaringan tetap tampil nomor).
+  useEffect(() => {
+    fetchAllSurahs()
+      .then((list) => setSurahNames(Object.fromEntries(list.map((surah) => [String(surah.nomor), surah.namaLatin]))))
+      .catch(() => {});
+    fetchHadisCollections()
+      .then((list) => setKitabNames(Object.fromEntries(list.map((kitab) => [kitab.slug, kitab.name]))))
+      .catch(() => {});
+  }, []);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -31,20 +47,30 @@ function BookmarksScreen() {
           return (
             <Pressable key={key} onPress={() => router.push(`/quran/${surahId}` as any)} style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}>
               <Ionicons name="bookmark" size={18} color={colors.gold} />
-              <Text style={[styles.itemText, { color: colors.text }]}>Surah {surahId}, ayat {ayahNumber}</Text>
-              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+              <Text style={[styles.itemText, { color: colors.text }]}>
+                {surahNames[surahId] ? `${surahNames[surahId]} (${surahId})` : `Surah ${surahId}`}, ayat {ayahNumber}
+              </Text>
+              <Pressable onPress={() => toggleBookmarkAyah(key)} hitSlop={10} accessibilityLabel="Hapus bookmark">
+                <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+              </Pressable>
             </Pressable>
           );
         })}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Hadis ({bookmarkedHadiths.length})</Text>
         {bookmarkedHadiths.length === 0 ? (
           <Text style={[styles.empty, { color: colors.textMuted }]}>Belum ada hadis yang disimpan.</Text>
-        ) : bookmarkedHadiths.map((number) => (
-          <View key={number} style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}>
-            <Ionicons name="bookmark" size={18} color={colors.gold} />
-            <Text style={[styles.itemText, { color: colors.text }]}>Hadis nomor {number}</Text>
-          </View>
-        ))}
+        ) : bookmarkedHadiths.map((ref) => {
+          const [slug, number] = ref.split(':');
+          return (
+            <Pressable key={ref} onPress={() => router.push(`/hadis/${slug}` as any)} style={[styles.item, { backgroundColor: colors.card, borderColor: colors.border }]}>
+              <Ionicons name="bookmark" size={18} color={colors.gold} />
+              <Text style={[styles.itemText, { color: colors.text }]}>{kitabNames[slug] || slug} No. {number}</Text>
+              <Pressable onPress={() => toggleBookmarkHadith(ref)} hitSlop={10} accessibilityLabel="Hapus bookmark">
+                <Ionicons name="trash-outline" size={18} color={colors.textMuted} />
+              </Pressable>
+            </Pressable>
+          );
+        })}
       </ScrollView>
     </View>
   );

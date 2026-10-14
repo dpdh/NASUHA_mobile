@@ -10,19 +10,45 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
 
-const ARTICLES = [
-  { id: 1, title: 'Memahami Bahaya Riba dalam Islam', category: 'Muamalah', readTime: '5 menit', icon: 'alert-circle-outline' as const },
-  { id: 2, title: 'Cara Memulai Hidup Bebas Utang', category: 'Keuangan', readTime: '7 menit', icon: 'trending-up-outline' as const },
-  { id: 3, title: 'Keutamaan Sedekah dalam Al-Quran dan Hadis', category: 'Ibadah', readTime: '4 menit', icon: 'heart-outline' as const },
-  { id: 4, title: 'Tips Istiqamah dalam Beribadah', category: 'Self-Development', readTime: '6 menit', icon: 'flame-outline' as const },
-  { id: 5, title: 'Panduan Keuangan Syariah untuk Pemula', category: 'Keuangan', readTime: '8 menit', icon: 'wallet-outline' as const },
-  { id: 6, title: 'Mengelola Stres dengan Dzikir dan Doa', category: 'Kesehatan', readTime: '5 menit', icon: 'leaf-outline' as const },
+interface ArtikelItem {
+  id: string | number;
+  title: string;
+  category: string;
+  readTime: string;
+  icon: string;
+  /** true bila artikel punya isi di server sehingga bisa dibuka */
+  readable: boolean;
+}
+
+// Daftar bawaan (belum ada isi) — tampil bila server belum memiliki artikel terbit.
+const ARTICLES: ArtikelItem[] = [
+  { id: 1, title: 'Memahami Bahaya Riba dalam Islam', category: 'Muamalah', readTime: '5 menit', icon: 'alert-circle-outline', readable: false },
+  { id: 2, title: 'Cara Memulai Hidup Bebas Utang', category: 'Keuangan', readTime: '7 menit', icon: 'trending-up-outline', readable: false },
+  { id: 3, title: 'Keutamaan Sedekah dalam Al-Quran dan Hadis', category: 'Ibadah', readTime: '4 menit', icon: 'heart-outline', readable: false },
+  { id: 4, title: 'Tips Istiqamah dalam Beribadah', category: 'Self-Development', readTime: '6 menit', icon: 'flame-outline', readable: false },
+  { id: 5, title: 'Panduan Keuangan Syariah untuk Pemula', category: 'Keuangan', readTime: '8 menit', icon: 'wallet-outline', readable: false },
+  { id: 6, title: 'Mengelola Stres dengan Dzikir dan Doa', category: 'Kesehatan', readTime: '5 menit', icon: 'leaf-outline', readable: false },
 ];
 
 function ArtikelScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
+  const { data: remote } = useApiQuery(() => contentApi.articles({ section: 'artikel' }), [], { cacheKey: 'artikel' });
+  // Hanya artikel terbit yang dikembalikan server, jadi semuanya bisa dibuka.
+  const articles: ArtikelItem[] = remote?.length
+    ? remote.map((article) => ({
+      id: article.id,
+      title: article.title,
+      category: article.summary || 'Artikel',
+      readTime: article.readTime,
+      icon: article.icon,
+      readable: true,
+    }))
+    : ARTICLES;
+  const hasReadable = articles.some((article) => article.readable);
 
   return (
     <ScrollView style={[styles.container, { backgroundColor: colors.background }]} showsVerticalScrollIndicator={false}>
@@ -37,10 +63,15 @@ function ArtikelScreen() {
       </View>
 
       <View style={styles.list}>
-        {ARTICLES.map((article) => (
-          <Pressable key={article.id} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
+        {articles.map((article) => (
+          <Pressable
+            key={article.id}
+            disabled={!article.readable}
+            onPress={() => router.push(`/motivasi/article/${article.id}` as any)}
+            style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, opacity: article.readable ? 1 : 0.75 }, Shadows.sm]}
+          >
             <View style={[styles.cardIcon, { backgroundColor: colors.primary + '15' }]}>
-              <Ionicons name={article.icon} size={24} color={colors.primary} />
+              <Ionicons name={article.icon as any} size={24} color={colors.primary} />
             </View>
             <View style={{ flex: 1 }}>
               <Text style={[styles.cardTitle, { color: colors.text }]}>{article.title}</Text>
@@ -51,17 +82,19 @@ function ArtikelScreen() {
                 <Text style={[styles.readTime, { color: colors.textMuted }]}>{article.readTime}</Text>
               </View>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            {article.readable && <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />}
           </Pressable>
         ))}
       </View>
 
+      {!hasReadable && (
       <View style={[styles.comingSoon, { backgroundColor: colors.surface }]}>
         <Ionicons name="construct-outline" size={24} color={colors.textMuted} />
         <Text style={[styles.comingText, { color: colors.textSecondary }]}>
           Konten artikel lengkap akan segera tersedia. Nantikan update selanjutnya!
         </Text>
       </View>
+      )}
       <View style={{ height: 24 }} />
     </ScrollView>
   );

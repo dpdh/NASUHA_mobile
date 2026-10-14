@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { memo, useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     Dimensions, FlatList,
     Image,
@@ -14,7 +15,10 @@ import {
     Text,
     View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { lapakApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -31,13 +35,12 @@ function ProductDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
-  const products = useAppStore((s) => s.products);
   const colors = Colors[theme];
+  const insets = useSafeAreaInsets();
   const [activePhoto, setActivePhoto] = useState(0);
 
-  const product = useMemo(() => products.find((p) => p.id === id), [products, id]);
-  const isOwner = user && product && user.id === product.sellerId;
-  const isAdmin = user?.role === 'super_admin' || user?.role === 'admin';
+  const { data: product, loading, error } = useApiQuery(() => lapakApi.detail(String(id)), [id, user?.id], { refetchOnFocus: true });
+  const isOwner = Boolean(user && product && user.id === product.sellerId);
 
   const handleWhatsApp = useCallback(async () => {
     if (!product) return;
@@ -47,6 +50,7 @@ function ProductDetailScreen() {
       return;
     }
 
+    lapakApi.trackContact(product.id);
     const msg = encodeURIComponent(`Assalamu'alaikum, saya tertarik dengan produk "${product.name}" seharga Rp ${product.price.toLocaleString('id-ID')} di NASJAK App. Apakah masih tersedia?`);
     try {
       const deepLink = `whatsapp://send?phone=${normalizedPhone}&text=${msg}`;
@@ -66,9 +70,13 @@ function ProductDetailScreen() {
 
   if (!product) return (
     <View style={[styles.center, { backgroundColor: colors.background }]}>
-      <Ionicons name="bag-remove-outline" size={48} color={colors.textMuted} />
-      <Text style={[styles.errorText, { color: colors.text }]}>Produk tidak ditemukan</Text>
-      <Pressable onPress={() => router.back()}><Text style={{ color: colors.primary, fontWeight: '700' }}>Kembali</Text></Pressable>
+      {loading ? <ActivityIndicator color={colors.primary} /> : (
+        <>
+          <Ionicons name="bag-remove-outline" size={48} color={colors.textMuted} />
+          <Text style={[styles.errorText, { color: colors.text }]}>{error || 'Produk tidak ditemukan'}</Text>
+          <Pressable onPress={() => router.back()}><Text style={{ color: colors.primary, fontWeight: '700' }}>Kembali</Text></Pressable>
+        </>
+      )}
     </View>
   );
 
@@ -88,7 +96,7 @@ function ProductDetailScreen() {
         <Pressable onPress={() => router.back()} hitSlop={12}><Ionicons name="arrow-back" size={24} color={colors.text} /></Pressable>
         <Text style={[styles.headerTitle, { color: colors.text }]}>Detail Produk</Text>
         <View style={styles.headerRight}>
-          {(isOwner || isAdmin) && (
+          {isOwner && (
             <Pressable onPress={() => router.push(`/lapak/edit/${product.id}` as any)} hitSlop={12}>
               <Ionicons name="create-outline" size={22} color={colors.primary} />
             </Pressable>
@@ -128,7 +136,12 @@ function ProductDetailScreen() {
         {isOwner && (
           <View style={[styles.statusBanner, { backgroundColor: STATUS_COLORS[product.status] + '15' }]}>
             <Ionicons name={product.status === 'approved' ? 'checkmark-circle' : product.status === 'pending' ? 'time' : 'close-circle'} size={18} color={STATUS_COLORS[product.status]} />
-            <Text style={[styles.statusText, { color: STATUS_COLORS[product.status] }]}>Status: {STATUS_LABELS[product.status]}</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.statusText, { color: STATUS_COLORS[product.status] }]}>Status: {STATUS_LABELS[product.status]}</Text>
+              {product.status === 'rejected' && product.rejectionReason ? (
+                <Text style={[styles.statusText, { color: colors.textSecondary, fontWeight: '500' }]}>Alasan: {product.rejectionReason}</Text>
+              ) : null}
+            </View>
           </View>
         )}
 
@@ -191,7 +204,7 @@ function ProductDetailScreen() {
       </ScrollView>
 
       {/* Bottom CTA */}
-      <View style={[styles.bottomBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+      <View style={[styles.bottomBar, { paddingBottom: Spacing.md + insets.bottom, backgroundColor: colors.card, borderTopColor: colors.border }]}>
         <Pressable style={[styles.chatBtn, { borderColor: '#25D366' }]} onPress={handleWhatsApp}>
           <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
           <Text style={[styles.chatBtnText, { color: '#25D366' }]}>Chat</Text>

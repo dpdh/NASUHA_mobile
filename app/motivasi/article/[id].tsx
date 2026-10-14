@@ -13,34 +13,72 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useAppStore } from '../../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../../constants/theme';
 import { MOTIVASI_ARTICLES, MOTIVASI_CATEGORIES } from '../../../constants/data';
+import { useApiQuery } from '../../../hooks/useApiQuery';
+import { contentApi } from '../../../services/nasjakApi';
+
+interface ArticleView {
+  title: string;
+  summary: string;
+  content: string;
+  author: string;
+  readTime: string;
+  icon: string;
+}
+
+interface CategoryView {
+  subtitle: string;
+  color: string;
+  gradient: string[];
+}
 
 function ArticleScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
 
-  const article = useMemo(
-    () => MOTIVASI_ARTICLES.find((a) => a.id === Number(id)),
-    [id],
-  );
+  // id bisa UUID (server) atau angka lama (konstanta app); server mendukung keduanya.
+  const { data: remote, loading } = useApiQuery(() => contentApi.article(id ?? ''), [id], {
+    cacheKey: `article_${id}`,
+    enabled: Boolean(id),
+  });
 
-  const category = useMemo(
-    () => MOTIVASI_CATEGORIES.find((c) => c.id === article?.categoryId),
-    [article],
-  );
+  const localArticle = useMemo(() => MOTIVASI_ARTICLES.find((a) => String(a.id) === String(id)), [id]);
+  const article: ArticleView | undefined = remote ?? localArticle;
+
+  const category: CategoryView = useMemo(() => {
+    const source = remote?.category ?? MOTIVASI_CATEGORIES.find((c) => c.id === (remote?.categoryId ?? localArticle?.categoryId));
+    return source
+      ? { subtitle: source.subtitle, color: source.color, gradient: [...source.gradient] }
+      : { subtitle: 'Artikel', color: colors.primary, gradient: [colors.primary, colors.primaryLight] };
+  }, [remote, localArticle, colors]);
 
   const onShare = async () => {
     if (!article) return;
     try {
       await Share.share({
-        message: `${article.title}\n\n${article.content.slice(0, 200)}...\n\n— NASJAK App (NASUHA Jakarta)`,
+        message: `${article.title}\n\n${article.content.slice(0, 200)}...\n\n— NASUHA App`,
       });
     } catch { /* ignore */ }
   };
 
-  if (!article || !category) return null;
+  if (!article) {
+    return (
+      <View style={[styles.container, { backgroundColor: colors.background }]}>
+        <View style={[styles.header, { backgroundColor: colors.card }]}>
+          <Pressable onPress={() => router.back()} hitSlop={12}>
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
+          </Pressable>
+          <Text style={[styles.headerTitle, { color: colors.text }]}>Artikel</Text>
+          <View style={{ width: 22 }} />
+        </View>
+        <Text style={[styles.summary, { color: colors.textSecondary, textAlign: 'center', marginTop: Spacing.xl }]}>
+          {loading ? 'Memuat artikel…' : 'Artikel tidak ditemukan.'}
+        </Text>
+      </View>
+    );
+  }
 
-  const paragraphs = article.content.split('\n\n');
+  const paragraphs = article.content.split('\n\n').filter((p) => p.trim().length > 0);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -85,26 +123,28 @@ function ArticleScreen() {
         <Text style={[styles.summary, { color: colors.primary }]}>{article.summary}</Text>
 
         {paragraphs.map((p, i) => {
-          const isQuote = p.startsWith('"') || p.startsWith('\u201C');
-          const isList = p.includes('\n•') || p.startsWith('•');
+          const isMarkdownQuote = p.startsWith('> ');
+          const isQuote = isMarkdownQuote || p.startsWith('"') || p.startsWith('\u201C');
+          const isBullet = /^[-*] /.test(p) || p.includes('\n- ') || p.includes('\n•') || p.startsWith('•');
           const isNumbered = /^\d+\./.test(p);
 
           if (isQuote) {
+            const text = isMarkdownQuote ? p.split('\n').map((line) => line.replace(/^>\s?/, '')).join('\n') : p;
             return (
               <View
                 key={i}
                 style={[styles.quoteBlock, { borderLeftColor: colors.gold, backgroundColor: colors.gold + '08' }]}
               >
-                <Text style={[styles.bodyText, { color: colors.text, fontStyle: 'italic' }]}>{p}</Text>
+                <Text style={[styles.bodyText, { color: colors.text, fontStyle: 'italic' }]}>{text}</Text>
               </View>
             );
           }
 
-          if (isList || isNumbered) {
+          if (isBullet || isNumbered) {
             return (
               <View key={i} style={styles.listBlock}>
                 {p.split('\n').map((line, j) => (
-                  <Text key={j} style={[styles.bodyText, { color: colors.text }]}>{line}</Text>
+                  <Text key={j} style={[styles.bodyText, { color: colors.text }]}>{line.replace(/^[-*] /, '• ')}</Text>
                 ))}
               </View>
             );

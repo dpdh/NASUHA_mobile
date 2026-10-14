@@ -125,9 +125,16 @@ function HadisDetailScreen() {
     loadPage(1, true);
   }, [loadPage]);
 
-  const bookmarkSet = useMemo(() => new Set(bookmarkedHadiths), [bookmarkedHadiths]);
+  // Nomor hadis yang di-bookmark untuk kitab ini (ref tersimpan sebagai "slug:nomor").
+  const bookmarkSet = useMemo(
+    () => new Set(bookmarkedHadiths.filter((ref) => ref.startsWith(`${slug}:`)).map((ref) => Number(ref.split(':')[1]))),
+    [bookmarkedHadiths, slug],
+  );
 
-  const handleToggle = useCallback((n: number) => toggleBookmarkHadith(n), [toggleBookmarkHadith]);
+  const handleToggle = useCallback(
+    (n: number) => toggleBookmarkHadith(`${slug}:${n}`, `${collectionName || slug} No. ${n}`),
+    [toggleBookmarkHadith, slug, collectionName],
+  );
 
   const formatHadithText = useCallback((item: HadithRow) =>
     `HR. ${collectionName || slug} No. ${item.number}\n\n${item.arab}\n\n${item.translation}\n\n— NASUHA App`, [collectionName, slug]);
@@ -305,7 +312,6 @@ function HadisDetailScreen() {
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews
           initialNumToRender={10}
           maxToRenderPerBatch={10}
           windowSize={5}

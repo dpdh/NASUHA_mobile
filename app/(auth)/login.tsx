@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { memo, useCallback, useEffect, useState } from 'react';
+import { goToHome } from '../../utils/navigation';
+import { memo, useCallback, useState } from 'react';
 import {
     Alert,
     Image,
@@ -16,8 +17,6 @@ import {
 } from 'react-native';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
-import { fetchGoogleUserInfo, isGoogleConfigured, useGoogleAuth } from '../../services/googleAuth';
-import { syncGoogleProfile } from '../../services/userProvider';
 import { useAppStore } from '../../store/appStore';
 
 const LOGO_SPLASH = require('../../assets/images/logo-splash.png');
@@ -25,7 +24,6 @@ const LOGO_SPLASH = require('../../assets/images/logo-splash.png');
 function LoginScreen() {
   const theme = useAppStore((s) => s.theme);
   const login = useAppStore((s) => s.login);
-  const loginWithGoogle = useAppStore((s) => s.loginWithGoogle);
   const setOnboarded = useAppStore((s) => s.setOnboarded);
   const colors = Colors[theme];
 
@@ -33,78 +31,16 @@ function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
-
-  const { request, response, promptAsync, isConfigured } = useGoogleAuth();
-  const googleConfigured = isGoogleConfigured();
-
-  // Handle Google Auth response
-  useEffect(() => {
-    if (response?.type === 'success' && response.authentication?.accessToken) {
-      handleGoogleSuccess(response.authentication.accessToken);
-    } else if (response?.type === 'error') {
-      setGoogleLoading(false);
-      Alert.alert('Error', 'Login Google gagal. Silakan coba lagi.');
-    } else if (response?.type === 'dismiss') {
-      setGoogleLoading(false);
-    }
-  }, [response]);
-
-  const handleGoogleSuccess = useCallback(async (accessToken: string) => {
-    setGoogleLoading(true);
-    try {
-      const userInfo = await fetchGoogleUserInfo(accessToken);
-      if (!userInfo || !userInfo.email) {
-        Alert.alert('Error', 'Tidak dapat mengambil informasi akun Google');
-        setGoogleLoading(false);
-        return;
-      }
-
-      const providerProfile = await syncGoogleProfile(accessToken, { id: userInfo.id, email: userInfo.email, name: userInfo.name || userInfo.email.split('@')[0], avatar: userInfo.picture });
-      loginWithGoogle({
-        googleId: userInfo.id,
-        email: userInfo.email,
-        name: userInfo.name || userInfo.email.split('@')[0],
-        avatar: userInfo.picture,
-        membershipType: providerProfile?.membershipType,
-        membershipFeatures: providerProfile?.membershipFeatures,
-      });
-
-      const user = useAppStore.getState().user;
-      if (user?.role === 'super_admin' || user?.role === 'admin') {
-        Alert.alert('Selamat Datang Admin!', `Login Google sebagai ${user.email}\nRole: ${user.role === 'super_admin' ? 'Super Admin' : 'Admin'} NASUHA`);
-      }
-
-      setOnboarded(true);
-      router.replace('/(tabs)/' as any);
-    } catch {
-      Alert.alert('Error', 'Terjadi kesalahan saat login Google');
-    } finally {
-      setGoogleLoading(false);
-    }
-  }, [loginWithGoogle, setOnboarded]);
-
-  const handleGoogleLogin = useCallback(async () => {
-    if (!googleConfigured || !request) {
-      Alert.alert(
-        'Google Sign-In Belum Aktif',
-        'Untuk mengaktifkan login Google:\n\n' +
-        '1. Buka Google Cloud Console\n' +
-        '2. Buat OAuth Client ID\n' +
-        '3. Isi Client ID di services/googleAuth.ts\n\n' +
-        'Lihat panduan lengkap di file services/googleAuth.ts',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
-    setGoogleLoading(true);
-    try {
-      await promptAsync();
-    } catch {
-      setGoogleLoading(false);
-      Alert.alert('Error', 'Tidak dapat membuka halaman login Google');
-    }
-  }, [promptAsync, googleConfigured, request]);
+  const handleForgotPassword = useCallback(() => {
+    Alert.alert(
+      'Lupa Password',
+      'Hubungi admin NASUHA atau koordinator korda Anda untuk mereset password. Admin akan memberikan password sementara yang wajib diganti setelah login.',
+      [
+        { text: 'Kontak Korda', onPress: () => router.push('/korda' as any) },
+        { text: 'OK' },
+      ],
+    );
+  }, []);
 
   const handleLogin = useCallback(async () => {
     if (!identifier.trim() || !password) {
@@ -116,6 +52,7 @@ function LoginScreen() {
     try {
       const result = await login(identifier, password);
       if (!result.success) {
+        setLoading(false);
         Alert.alert('Error', result.error || 'Login gagal');
         return;
       }
@@ -125,12 +62,14 @@ function LoginScreen() {
         Alert.alert('Selamat Datang Admin!', `Login sebagai ${user.email}\nRole: ${user.role === 'super_admin' ? 'Super Admin' : 'Admin'} NASUHA`);
       }
       setOnboarded(true);
-      router.replace('/(tabs)/' as any);
+      // Jangan reset `loading` di jalur sukses: re-render tombol saat layar sedang animasi keluar memicu
+      // crash Fabric Android "addViewAt: child already has a parent". Layar ini toh di-unmount.
+      goToHome();
+      return;
     } catch {
       Alert.alert('Error', 'Terjadi kesalahan saat login. Silakan coba lagi.');
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }, [identifier, password, login, setOnboarded]);
 
   return (
@@ -154,34 +93,7 @@ function LoginScreen() {
           <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.md]}>
             <ShimmerGold style={styles.shimmerTop} />
             <Text style={[styles.cardTitle, { color: colors.text }]}>Masuk</Text>
-            <Text style={[styles.cardSub, { color: colors.textSecondary }]}>Assalamu'alaikum, silakan login</Text>
-
-            {/* Google Sign-In Button */}
-            <Pressable
-              onPress={handleGoogleLogin}
-              disabled={googleLoading}
-              style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
-            >
-              <View style={[styles.googleBtn, { backgroundColor: colors.surface, borderColor: colors.border }, googleLoading && { opacity: 0.6 }]}>
-                {googleLoading ? (
-                  <Text style={[styles.googleBtnText, { color: colors.text }]}>Menghubungkan...</Text>
-                ) : (
-                  <>
-                    <View style={styles.googleIconWrap}>
-                      <Text style={styles.googleG}>G</Text>
-                    </View>
-                    <Text style={[styles.googleBtnText, { color: colors.text }]}>Masuk dengan Google</Text>
-                  </>
-                )}
-              </View>
-            </Pressable>
-
-            {/* Divider */}
-            <View style={styles.dividerRow}>
-              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-              <Text style={[styles.dividerText, { color: colors.textMuted }]}>atau</Text>
-              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-            </View>
+            <Text style={[styles.cardSub, { color: colors.textSecondary }]}>Assalamu&apos;alaikum, silakan login</Text>
 
             {/* Email or phone */}
             <View style={styles.inputGroup}>
@@ -190,7 +102,7 @@ function LoginScreen() {
                 <Ionicons name="person-circle-outline" size={20} color={colors.textMuted} />
                 <TextInput
                   style={[styles.input, { color: colors.text }]}
-                  placeholder="email@example.com atau 08xxxxxxxxxx"
+                  placeholder="nama@email.com atau 08xxxxxxxxx"
                   placeholderTextColor={colors.textMuted}
                   value={identifier}
                   onChangeText={setIdentifier}
@@ -221,7 +133,7 @@ function LoginScreen() {
             </View>
 
             {/* Forgot Password */}
-            <Pressable style={styles.forgotRow}>
+            <Pressable style={styles.forgotRow} onPress={handleForgotPassword}>
               <Text style={[styles.forgotText, { color: colors.primary }]}>Lupa password?</Text>
             </Pressable>
 
@@ -233,14 +145,9 @@ function LoginScreen() {
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
               >
-                {loading ? (
-                  <Text style={styles.loginText}>Memuat...</Text>
-                ) : (
-                  <>
-                    <Ionicons name="log-in-outline" size={20} color="#FFF" />
-                    <Text style={styles.loginText}>Masuk</Text>
-                  </>
-                )}
+                {/* Struktur anak dibuat tetap (tidak ditukar) agar aman di Android Fabric. */}
+                <Ionicons name={loading ? 'hourglass-outline' : 'log-in-outline'} size={20} color="#FFF" />
+                <Text style={styles.loginText}>{loading ? 'Memuat...' : 'Masuk'}</Text>
               </LinearGradient>
             </Pressable>
           </View>
@@ -255,7 +162,7 @@ function LoginScreen() {
 
           {/* Guest */}
           <Pressable
-            onPress={() => router.replace('/(tabs)/' as any)}
+            onPress={() => goToHome()}
             style={styles.guestRow}
           >
             <Text style={[styles.guestText, { color: colors.textMuted }]}>Masuk sebagai Tamu</Text>
@@ -288,46 +195,6 @@ const styles = StyleSheet.create({
   shimmerTop: { height: 3 },
   cardTitle: { fontSize: FontSize.xxl, fontWeight: '800', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
   cardSub: { fontSize: FontSize.sm, paddingHorizontal: Spacing.lg, marginTop: 4, marginBottom: Spacing.lg },
-
-  // Google Button
-  googleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
-    paddingVertical: 12,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1.5,
-    gap: Spacing.sm,
-  },
-  googleIconWrap: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  googleG: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#4285F4',
-  },
-  googleBtnText: { fontSize: FontSize.md, fontWeight: '600' },
-
-  // Divider
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  dividerText: { fontSize: FontSize.sm },
 
   inputGroup: { paddingHorizontal: Spacing.lg, marginBottom: Spacing.md },
   label: { fontSize: FontSize.sm, fontWeight: '600', marginBottom: 6 },

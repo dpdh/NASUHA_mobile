@@ -12,11 +12,21 @@ import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
 import { MOTIVASI_CATEGORIES, MOTIVASI_ARTICLES } from '../../constants/data';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
+import type { MotivasiCategory } from '../../types';
 
-type Category = (typeof MOTIVASI_CATEGORIES)[0];
+type Category = MotivasiCategory;
+
+// Konten bawaan app dipakai bila server belum terjangkau.
+const FALLBACK_CATEGORIES: Category[] = MOTIVASI_CATEGORIES.map((category) => ({
+  ...category,
+  gradient: [...category.gradient],
+  articlesCount: MOTIVASI_ARTICLES.filter((article) => article.categoryId === category.id).length,
+}));
 
 const CategoryCard = memo(({ item, colors }: { item: Category; colors: typeof Colors.light }) => {
-  const articleCount = MOTIVASI_ARTICLES.filter((a) => a.categoryId === item.id).length;
+  const articleCount = item.articlesCount ?? 0;
 
   return (
     <Pressable
@@ -58,6 +68,10 @@ const CategoryCard = memo(({ item, colors }: { item: Category; colors: typeof Co
 function MotivasiScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
+  const { data: categories } = useApiQuery(() => contentApi.motivasiCategories(), [], {
+    cacheKey: 'motivasi_categories',
+    fallback: FALLBACK_CATEGORIES,
+  });
 
   const renderItem = useCallback(
     ({ item }: { item: Category }) => <CategoryCard item={item} colors={colors} />,
@@ -82,12 +96,11 @@ function MotivasiScreen() {
       </View>
 
       <FlatList
-        data={MOTIVASI_CATEGORIES}
+        data={categories?.length ? categories : FALLBACK_CATEGORIES}
         keyExtractor={(item) => item.id}
         renderItem={renderItem}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
-        removeClippedSubviews
       />
     </View>
   );

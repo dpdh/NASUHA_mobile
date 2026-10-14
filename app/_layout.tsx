@@ -2,8 +2,9 @@ import { useFonts } from 'expo-font';
 import { Stack, router, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Platform } from 'react-native';
+import AlertHost from '../components/AlertHost';
 import { getColors } from '../constants/theme';
 import { getNotifications } from '../services/nativeModules';
 import { useAppStore } from '../store/appStore';
@@ -12,9 +13,9 @@ SplashScreen.preventAutoHideAsync().catch(() => {});
 
 const Notifications = getNotifications();
 
-export const unstable_settings = {
-  initialRouteName: 'onboarding',
-};
+// Catatan: jangan set initialRouteName = 'onboarding'. Itu membuat layar onboarding (dengan banyak
+// animasi loop native) selalu tertinggal di bawah stack dan membuat UI thread Android tersendat (ANR).
+// Redirect ke onboarding untuk user baru sudah ditangani effect di bawah.
 
 try {
   Notifications?.setNotificationHandler?.({
@@ -27,7 +28,6 @@ try {
 export default function RootLayout() {
   const theme = useAppStore((s) => s.theme);
   const colorScheme = useAppStore((s) => s.colorScheme);
-  const user = useAppStore((s) => s.user);
   const isOnboarded = useAppStore((s) => s.isOnboarded);
   const hydrate = useAppStore((s) => s.hydrate);
   const segments = useSegments();
@@ -39,18 +39,14 @@ export default function RootLayout() {
     'Lateef-Bold': require('../assets/fonts/Lateef-Bold.ttf'),
   });
 
-  const onReady = useCallback(async () => {
-    setReady(true);
-    try {
-      await hydrate();
-    } catch {
-      // Data hydration is best effort; startup should not be blocked by persistence issues.
-    }
-  }, [hydrate]);
-
   useEffect(() => {
-    onReady();
-  }, [onReady]);
+    // Ready setelah hydrate supaya redirect onboarding tidak memakai state default.
+    hydrate()
+      .catch(() => {
+        // Data hydration is best effort; startup should not be blocked by persistence issues.
+      })
+      .finally(() => setReady(true));
+  }, [hydrate]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' && ready && fontsLoaded) {
@@ -132,6 +128,7 @@ export default function RootLayout() {
         <Stack.Screen name="kfm/index" />
         <Stack.Screen name="infaq/index" />
       </Stack>
+      <AlertHost />
     </>
   );
 }

@@ -1,18 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useState } from 'react';
 import {
+    ActivityIndicator,
     FlatList,
     Pressable,
+    RefreshControl,
     StyleSheet,
+    Alert,
     Text,
     View
 } from 'react-native';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { questionApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
 import type { Question } from '../../types';
 
-const CATEGORIES = ['Semua', 'Keuangan Syariah', 'Hijrah', 'Fiqh', 'Bisnis', 'Umum'] as const;
+const DEFAULT_CATEGORIES = ['Keuangan Syariah', 'Hijrah', 'Fiqh', 'Bisnis', 'Umum'];
 const CATEGORY_META: Record<string, { color: string; icon: React.ComponentProps<typeof Ionicons>['name'] }> = {
   Semua: { color: '#2EC4B6', icon: 'grid-outline' },
   'Keuangan Syariah': { color: '#2EC4B6', icon: 'wallet-outline' },
@@ -21,6 +26,7 @@ const CATEGORY_META: Record<string, { color: string; icon: React.ComponentProps<
   Bisnis: { color: '#FF6B6B', icon: 'briefcase-outline' },
   Umum: { color: '#4A90D9', icon: 'people-outline' },
 };
+const DEFAULT_META = { color: '#4A90D9', icon: 'help-circle-outline' as const };
 const CAT_COLORS: Record<string, string> = Object.fromEntries(Object.entries(CATEGORY_META).map(([key, meta]) => [key, meta.color]));
 
 const QuestionCard = memo(({ item, colors }: { item: Question; colors: typeof Colors.light }) => (
@@ -45,23 +51,50 @@ const QuestionCard = memo(({ item, colors }: { item: Question; colors: typeof Co
     <View style={styles.footer}>
       <View style={styles.footerItem}>
         <Ionicons name="chatbubble-outline" size={14} color={colors.textMuted} />
-        <Text style={[styles.footerText, { color: colors.textMuted }]}>{item.answers.length} jawaban</Text>
+        <Text style={[styles.footerText, { color: colors.textMuted }]}>{item.answersCount} jawaban</Text>
       </View>
+      {item.hasOfficialAnswer && (
+        <View style={styles.footerItem}>
+          <Ionicons name="checkmark-circle" size={14} color={colors.success} />
+          <Text style={[styles.footerText, { color: colors.success, fontWeight: '700' }]}>Dijawab Ustadz</Text>
+        </View>
+      )}
     </View>
   </Pressable>
 ));
+QuestionCard.displayName = 'QuestionCard';
 
 function TanyaIndexScreen() {
   const theme = useAppStore((s) => s.theme);
-  const questions = useAppStore((s) => s.questions);
+  const references = useAppStore((s) => s.references);
+  const user = useAppStore((s) => s.user);
+  const hasFeature = useAppStore((s) => s.hasFeature);
   const colors = Colors[theme];
   const [filter, setFilter] = useState('Semua');
+  const categories = ['Semua', ...(references?.questionCategories?.length ? references.questionCategories : DEFAULT_CATEGORIES)];
 
-  const filtered = useMemo(() => {
-    let list = questions;
-    if (filter !== 'Semua') list = list.filter((q) => q.category === filter);
-    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [questions, filter]);
+  const openAdd = () => {
+    if (!user) {
+      Alert.alert('Login Diperlukan', 'Silakan login terlebih dahulu untuk bertanya.', [
+        { text: 'Nanti', style: 'cancel' },
+        { text: 'Login', onPress: () => router.push('/(auth)/login' as any) },
+      ]);
+      return;
+    }
+    if (!hasFeature('tanya') && user.role !== 'ustadz') {
+      Alert.alert('Fitur Khusus Member', 'Tanya Ustadz tersedia untuk member. Hubungi admin atau korda Anda untuk upgrade membership.');
+      return;
+    }
+    router.push('/tanya/add' as any);
+  };
+
+  // Server sudah mengurutkan terbaru dulu; tidak ada sort in-place di sini.
+  const { data, loading, refreshing, refresh, error } = useApiQuery(
+    () => questionApi.list({ category: filter === 'Semua' ? undefined : filter, perPage: 50 }).then((result) => result.data),
+    [filter],
+    { cacheKey: `questions_${filter}`, refetchOnFocus: true },
+  );
+  const filtered: Question[] = data ?? [];
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -76,8 +109,8 @@ function TanyaIndexScreen() {
       </View>
 
       <View style={styles.filterWrap}>
-        {CATEGORIES.map((c) => {
-          const meta = CATEGORY_META[c];
+        {categories.map((c) => {
+          const meta = CATEGORY_META[c] || DEFAULT_META;
           const active = filter === c;
           return (
             <Pressable
@@ -104,16 +137,21 @@ function TanyaIndexScreen() {
         renderItem={({ item }) => <QuestionCard item={item} colors={colors} />}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="chatbubbles-outline" size={56} color={colors.textMuted} />
-            <Text style={[styles.emptyTitle, { color: colors.text }]}>Belum ada pertanyaan</Text>
-            <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Jadilah yang pertama bertanya!</Text>
-          </View>
+          loading ? (
+            <ActivityIndicator style={{ marginTop: 60 }} color={colors.primary} />
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name={error ? 'cloud-offline-outline' : 'chatbubbles-outline'} size={56} color={colors.textMuted} />
+              <Text style={[styles.emptyTitle, { color: colors.text }]}>{error ? 'Gagal memuat pertanyaan' : 'Belum ada pertanyaan'}</Text>
+              <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{error || 'Jadilah yang pertama bertanya!'}</Text>
+            </View>
+          )
         }
       />
 
-      <Pressable onPress={() => router.push('/tanya/add' as any)} style={[styles.fab, { backgroundColor: colors.primary }, Shadows.md]}>
+      <Pressable onPress={openAdd} style={[styles.fab, { backgroundColor: colors.primary }, Shadows.md]}>
         <Ionicons name="add" size={28} color="#FFF" />
       </Pressable>
     </View>

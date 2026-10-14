@@ -1,13 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import { memo, useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
+    ActivityIndicator,
     Alert,
     FlatList,
     Image,
     Linking,
     Pressable,
+    RefreshControl,
     StyleSheet,
     Text,
     TextInput,
@@ -15,9 +17,17 @@ import {
 } from 'react-native';
 import { LAPAK_CATEGORIES } from '../../constants/data';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { lapakApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
 
 import type { LapakProduct } from '../../types';
+
+const STATUS_LABEL: Record<LapakProduct['status'], string> = {
+  pending: 'Menunggu Review',
+  approved: 'Aktif',
+  rejected: 'Ditolak',
+};
 
 const normalizeWhatsapp = (phone?: string) => {
   if (!phone) return '';
@@ -26,7 +36,8 @@ const normalizeWhatsapp = (phone?: string) => {
   return digits.startsWith('0') ? `62${digits.slice(1)}` : digits.startsWith('62') ? digits : `62${digits}`;
 };
 
-const ProductCard = memo(({ item, colors }: { item: LapakProduct; colors: typeof Colors.light }) => {
+const ProductCard = memo(({ item, colors, showStatus }: { item: LapakProduct; colors: typeof Colors.light; showStatus?: boolean }) => {
+  const statusColor = item.status === 'approved' ? colors.success : item.status === 'rejected' ? colors.error : colors.warning;
   const handleWhatsApp = useCallback(async () => {
     const normalizedPhone = normalizeWhatsapp(item.sellerWhatsapp);
     if (!normalizedPhone) {
@@ -34,6 +45,7 @@ const ProductCard = memo(({ item, colors }: { item: LapakProduct; colors: typeof
       return;
     }
 
+    lapakApi.trackContact(item.id);
     const msg = encodeURIComponent(`Assalamu'alaikum, saya tertarik dengan produk "${item.name}" di NASJAK App. Apakah masih tersedia?`);
     try {
       const deepLink = `whatsapp://send?phone=${normalizedPhone}&text=${msg}`;
@@ -61,6 +73,14 @@ const ProductCard = memo(({ item, colors }: { item: LapakProduct; colors: typeof
       )}
 
       <View style={styles.productBody}>
+        {showStatus && (
+          <View style={[styles.statusBadge, { backgroundColor: statusColor + '18' }]}>
+            <Text style={[styles.statusText, { color: statusColor }]}>{STATUS_LABEL[item.status]}</Text>
+            {item.status === 'rejected' && item.rejectionReason ? (
+              <Text style={[styles.statusReason, { color: colors.textSecondary }]}>Alasan: {item.rejectionReason}</Text>
+            ) : null}
+          </View>
+        )}
         {/* Tags */}
         <View style={styles.tagRow}>
           {item.tags.slice(0, 2).map((tag) => (
@@ -103,32 +123,80 @@ const ProductCard = memo(({ item, colors }: { item: LapakProduct; colors: typeof
     </Pressable>
   );
 });
+ProductCard.displayName = 'ProductCard';
 
 function LapakScreen() {
   const { mine } = useLocalSearchParams<{ mine?: string }>();
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
-  const products = useAppStore((s) => s.products);
+  const references = useAppStore((s) => s.references);
+  const hasFeature = useAppStore((s) => s.hasFeature);
   const colors = Colors[theme];
   const [activeCategory, setActiveCategory] = useState('semua');
   const [searchQuery, setSearchQuery] = useState('');
+  const [appliedQuery, setAppliedQuery] = useState('');
+  const isMine = mine === '1';
 
-  const approvedProducts = useMemo(() => products.filter((p) => p.status === 'approved'), [products]);
-  const myProducts = useMemo(() => user ? products.filter((p) => p.sellerId === user.id) : [], [products, user]);
+  useEffect(() => {
+    const timer = setTimeout(() => setAppliedQuery(searchQuery.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  const categories = useMemo(() => (
+    references?.lapakCategories?.length
+      ? [{ id: 'semua', label: 'Semua', icon: 'grid-outline' }, ...references.lapakCategories.map((c) => ({ id: c.id, label: c.label, icon: c.icon || 'pricetag-outline' }))]
+      : LAPAK_CATEGORIES
+  ), [references]);
+
+  const publicQuery = useApiQuery(
+    () => lapakApi.list({
+      category: activeCategory === 'semua' ? undefined : activeCategory,
+      q: appliedQuery || undefined,
+      perPage: 50,
+    }),
+    [activeCategory, appliedQuery],
+    // Tetap dimuat di mode "Dagangan Saya" karena statistik hero (produk/penjual) berasal dari sini.
+    { refetchOnFocus: true },
+  );
+  const mineQuery = useApiQuery(() => lapakApi.mine(), [user?.id], { refetchOnFocus: true, enabled: Boolean(user) });
+
+  const stats = (publicQuery.data?.meta?.stats as { products: number; sellers: number } | undefined);
+  const myProducts = useMemo(() => mineQuery.data?.data || [], [mineQuery.data]);
 
   const filteredProducts = useMemo(() => {
-    let list = mine === '1' ? myProducts : approvedProducts;
+    if (!isMine) return publicQuery.data?.data || [];
+    let list = myProducts;
     if (activeCategory !== 'semua') list = list.filter((p) => p.category === activeCategory);
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter((p) => p.name.toLowerCase().includes(q) || p.sellerName.toLowerCase().includes(q) || p.description.toLowerCase().includes(q));
+    if (appliedQuery) {
+      const q = appliedQuery.toLowerCase();
+      list = list.filter((p) => p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q));
     }
     return list;
-  }, [approvedProducts, myProducts, activeCategory, searchQuery, mine]);
+  }, [isMine, publicQuery.data, myProducts, activeCategory, appliedQuery]);
+
+  const activeQuery = isMine ? mineQuery : publicQuery;
+
+  const handleSell = useCallback(() => {
+    if (!user) {
+      Alert.alert('Login Diperlukan', 'Silakan login terlebih dahulu untuk berjualan di Lapak.', [
+        { text: 'Nanti', style: 'cancel' },
+        { text: 'Login', onPress: () => router.push('/(auth)/login' as any) },
+      ]);
+      return;
+    }
+    if (!hasFeature('lapak')) {
+      Alert.alert(
+        'Khusus Sahabat NASUHA',
+        'Fitur Lapak Penjualan khusus untuk anggota Sahabat NASUHA. Hubungi admin atau korda Anda untuk upgrade membership.',
+      );
+      return;
+    }
+    router.push('/lapak/add' as any);
+  }, [user, hasFeature]);
 
   const renderProduct = useCallback(
-    ({ item }: { item: LapakProduct }) => <ProductCard item={item} colors={colors} />,
-    [colors],
+    ({ item }: { item: LapakProduct }) => <ProductCard item={item} colors={colors} showStatus={isMine} />,
+    [colors, isMine],
   );
 
   const headerComponent = useMemo(() => (
@@ -139,19 +207,19 @@ function LapakScreen() {
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </Pressable>
         <Ionicons name="storefront" size={48} color="#FFF" />
-        <Text style={styles.heroTitle}>Lapak Sahabat NASUHA</Text>
+        <Text style={styles.heroTitle}>{isMine ? 'Dagangan Saya' : 'Lapak Sahabat NASUHA'}</Text>
         <Text style={styles.heroSub}>Belanja dari sesama sahabat, berkah bersama</Text>
         <View style={styles.heroStats}>
-          <View style={styles.heroStat}><Text style={styles.heroStatNum}>{approvedProducts.length}</Text><Text style={styles.heroStatLabel}>Produk</Text></View>
+          <View style={styles.heroStat}><Text style={styles.heroStatNum}>{stats?.products ?? '-'}</Text><Text style={styles.heroStatLabel}>Produk</Text></View>
           <View style={styles.heroStatDivider} />
-          <View style={styles.heroStat}><Text style={styles.heroStatNum}>{new Set(approvedProducts.map((p) => p.sellerId)).size}</Text><Text style={styles.heroStatLabel}>Penjual</Text></View>
+          <View style={styles.heroStat}><Text style={styles.heroStatNum}>{stats?.sellers ?? '-'}</Text><Text style={styles.heroStatLabel}>Penjual</Text></View>
           <View style={styles.heroStatDivider} />
           <View style={styles.heroStat}><Text style={styles.heroStatNum}>100%</Text><Text style={styles.heroStatLabel}>Halal</Text></View>
         </View>
       </LinearGradient>
 
       {/* My Products Banner */}
-      {myProducts.length > 0 && (
+      {!isMine && myProducts.length > 0 && (
         <Pressable onPress={() => router.push('/lapak/?mine=1' as any)} style={[styles.myBanner, { backgroundColor: colors.primary + '12', borderColor: colors.primary + '30' }]}>
           <Ionicons name="bag-check" size={20} color={colors.primary} />
           <View style={{ flex: 1 }}>
@@ -177,7 +245,7 @@ function LapakScreen() {
       </View>
 
       {/* Categories */}
-      <FlatList horizontal data={LAPAK_CATEGORIES} keyExtractor={(item) => item.id} showsHorizontalScrollIndicator={false}
+      <FlatList horizontal data={categories} keyExtractor={(item) => item.id} showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.categoryList}
         renderItem={({ item }) => {
           const isActive = activeCategory === item.id;
@@ -199,7 +267,7 @@ function LapakScreen() {
       />
       <Text style={[styles.resultCount, { color: colors.textSecondary }]}>{filteredProducts.length} produk ditemukan</Text>
     </>
-  ), [colors, activeCategory, searchQuery, approvedProducts, myProducts, filteredProducts.length]);
+  ), [colors, activeCategory, searchQuery, stats, myProducts, filteredProducts.length, isMine, categories]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -209,18 +277,27 @@ function LapakScreen() {
         renderItem={renderProduct}
         ListHeaderComponent={headerComponent}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Ionicons name="bag-outline" size={48} color={colors.textMuted} />
-            <Text style={[styles.emptyText, { color: colors.textMuted }]}>Belum ada produk</Text>
-            <Text style={[styles.emptyHint, { color: colors.textSecondary }]}>Jadilah yang pertama jual dagangan!</Text>
-          </View>
+          activeQuery.loading ? (
+            <ActivityIndicator color={colors.primary} style={{ marginTop: Spacing.xl }} />
+          ) : (
+            <View style={styles.empty}>
+              <Ionicons name="bag-outline" size={48} color={colors.textMuted} />
+              <Text style={[styles.emptyText, { color: colors.textMuted }]}>
+                {activeQuery.error ? 'Gagal memuat produk' : isMine && !user ? 'Silakan login dulu' : 'Belum ada produk'}
+              </Text>
+              <Text style={[styles.emptyHint, { color: colors.textSecondary }]}>
+                {activeQuery.error || 'Jadilah yang pertama jual dagangan!'}
+              </Text>
+            </View>
+          )
         }
+        refreshControl={<RefreshControl refreshing={activeQuery.refreshing} onRefresh={activeQuery.refresh} tintColor={colors.primary} />}
         contentContainerStyle={styles.list}
         showsVerticalScrollIndicator={false}
       />
 
       {/* FAB - Jual Dagangan */}
-      <Pressable onPress={() => router.push('/lapak/add' as any)} style={({ pressed }) => [styles.fab, { opacity: pressed ? 0.9 : 1 }]}>
+      <Pressable onPress={handleSell} style={({ pressed }) => [styles.fab, { opacity: pressed ? 0.9 : 1 }]}>
         <LinearGradient colors={['#D4A853', '#B8860B']} style={styles.fabGradient}>
           <Ionicons name="add" size={24} color="#FFF" />
           <Text style={styles.fabText}>Jual</Text>
@@ -270,6 +347,9 @@ const styles = StyleSheet.create({
   productImage: { width: '100%', height: 200 },
   productImagePlaceholder: { width: '100%', height: 160, alignItems: 'center', justifyContent: 'center' },
   productBody: { padding: Spacing.md },
+  statusBadge: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: BorderRadius.sm, marginBottom: Spacing.xs },
+  statusText: { fontSize: FontSize.xs, fontWeight: '800' },
+  statusReason: { fontSize: FontSize.xs, marginTop: 2 },
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginBottom: Spacing.xs },
   tag: { paddingHorizontal: 8, paddingVertical: 2, borderRadius: BorderRadius.sm },
   tagText: { fontSize: FontSize.xs, fontWeight: '700' },

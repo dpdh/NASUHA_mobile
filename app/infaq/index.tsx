@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useState } from 'react';
+import React, { memo, useCallback, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Pressable,
   Alert,
   Linking,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -14,6 +15,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Clipboard from 'expo-clipboard';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
+import type { InfaqProgram as RemoteInfaqProgram } from '../../types';
 
 interface InfaqProgram {
   id: string;
@@ -25,6 +29,15 @@ interface InfaqProgram {
   bankAccount: string;
   bankHolder: string;
   whatsappConfirm: string;
+  shortLabel?: string;
+  qrisImage?: string | null;
+}
+
+const SHORT_LABELS: Record<string, string> = { app: 'Aplikasi', subuh: 'Sedekah Subuh', air: 'Air Minum' };
+
+function fromRemote(program: RemoteInfaqProgram): InfaqProgram {
+  const gradient: [string, string] = [program.gradient[0] || '#F59E0B', program.gradient[1] || program.gradient[0] || '#D97706'];
+  return { ...program, icon: program.icon as InfaqProgram['icon'], gradient };
 }
 
 const INFAQ_PROGRAMS: InfaqProgram[] = [
@@ -63,14 +76,25 @@ const INFAQ_PROGRAMS: InfaqProgram[] = [
   },
 ];
 
-const NOMINAL_OPTIONS = [10000, 25000, 50000, 100000, 250000, 500000];
+const DEFAULT_NOMINAL_OPTIONS = [10000, 25000, 50000, 100000, 250000, 500000];
 
 const formatRupiah = (n: number) => `Rp ${n.toLocaleString('id-ID')}`;
 
 function InfaqScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
-  const [selectedProgram, setSelectedProgram] = useState<InfaqProgram>(INFAQ_PROGRAMS[0]);
+  const references = useAppStore((s) => s.references);
+  const nominalOptions = references?.infaqNominals?.length ? references.infaqNominals : DEFAULT_NOMINAL_OPTIONS;
+  const { data: remotePrograms } = useApiQuery(() => contentApi.infaqPrograms(), [], { cacheKey: 'infaq_programs' });
+  const programs = useMemo(
+    () => (remotePrograms?.length ? remotePrograms.map(fromRemote) : INFAQ_PROGRAMS),
+    [remotePrograms],
+  );
+  const [selectedId, setSelectedId] = useState<string>(INFAQ_PROGRAMS[0].id);
+  const selectedProgram = useMemo(
+    () => programs.find((program) => program.id === selectedId) ?? programs[0],
+    [programs, selectedId],
+  );
   const [selectedNominal, setSelectedNominal] = useState<number | null>(null);
 
   const handleCopyAccount = useCallback(async () => {
@@ -109,17 +133,17 @@ function InfaqScreen() {
 
       {/* Program Tabs */}
       <View style={styles.programTabs}>
-        {INFAQ_PROGRAMS.map((prog) => {
+        {programs.map((prog) => {
           const isActive = selectedProgram.id === prog.id;
           return (
             <Pressable
               key={prog.id}
-              onPress={() => { setSelectedProgram(prog); setSelectedNominal(null); }}
+              onPress={() => { setSelectedId(prog.id); setSelectedNominal(null); }}
               style={[styles.programTab, isActive && { borderColor: prog.gradient[0], borderWidth: 2 }, { backgroundColor: isActive ? prog.gradient[0] + '15' : colors.surface }]}
             >
               <Ionicons name={prog.icon} size={20} color={isActive ? prog.gradient[0] : colors.textMuted} />
               <Text style={[styles.programTabText, { color: isActive ? prog.gradient[0] : colors.textSecondary }]} numberOfLines={1}>
-                {prog.id === 'app' ? 'Aplikasi' : prog.id === 'subuh' ? 'Sedekah Subuh' : 'Air Minum'}
+                {prog.shortLabel || SHORT_LABELS[prog.id] || prog.title}
               </Text>
             </Pressable>
           );
@@ -138,10 +162,14 @@ function InfaqScreen() {
         <View style={styles.qrSection}>
           <Text style={[styles.sectionLabel, { color: colors.text }]}>Scan QRIS untuk Transfer</Text>
           <LinearGradient colors={['#F8F9FA', '#E9ECEF']} style={styles.qrBox}>
-            <View style={styles.qrPlaceholder}>
-              <Ionicons name="qr-code-outline" size={80} color="#6C757D" />
-              <Text style={styles.qrPlaceholderText}>QRIS</Text>
-            </View>
+            {selectedProgram.qrisImage ? (
+              <Image source={{ uri: selectedProgram.qrisImage }} style={styles.qrImage} resizeMode="contain" />
+            ) : (
+              <View style={styles.qrPlaceholder}>
+                <Ionicons name="qr-code-outline" size={80} color="#6C757D" />
+                <Text style={styles.qrPlaceholderText}>QRIS</Text>
+              </View>
+            )}
             <Text style={styles.qrNote}>Scan QR code di atas menggunakan{'\n'}aplikasi mobile banking Anda</Text>
           </LinearGradient>
         </View>
@@ -177,7 +205,7 @@ function InfaqScreen() {
         <View style={styles.nominalSection}>
           <Text style={[styles.sectionLabel, { color: colors.text }]}>Pilih Nominal</Text>
           <View style={styles.nominalGrid}>
-            {NOMINAL_OPTIONS.map((n) => {
+            {nominalOptions.map((n) => {
               const isActive = selectedNominal === n;
               return (
                 <Pressable
@@ -253,6 +281,7 @@ const styles = StyleSheet.create({
   qrSection: { marginBottom: Spacing.lg },
   sectionLabel: { fontSize: FontSize.md, fontWeight: '700', marginBottom: Spacing.sm },
   qrBox: { borderRadius: BorderRadius.lg, padding: Spacing.lg, alignItems: 'center' },
+  qrImage: { width: 200, height: 200, borderRadius: BorderRadius.md, backgroundColor: '#FFF' },
   qrPlaceholder: { alignItems: 'center', padding: Spacing.lg },
   qrPlaceholderText: { fontSize: FontSize.lg, fontWeight: '800', color: '#6C757D', marginTop: Spacing.xs },
   qrNote: { fontSize: FontSize.xs, color: '#6C757D', textAlign: 'center', marginTop: Spacing.sm },

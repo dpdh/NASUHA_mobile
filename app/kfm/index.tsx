@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import { memo, useEffect, useRef, useState } from 'react';
+import React, { memo, useEffect, useRef, useState } from 'react';
 import {
     Animated,
     Pressable,
@@ -11,9 +11,14 @@ import {
     View,
 } from 'react-native';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
 
-const KFM_TOPICS = [
+type KfmTopic = { id: string; title: string; icon: React.ComponentProps<typeof Ionicons>['name']; gradient: string[]; items: string[] };
+type KfmSection = { title: string; items: string[] };
+
+const KFM_TOPICS: KfmTopic[] = [
   {
     id: 'fundamental',
     title: 'Fundamental Fiqih Muamalah',
@@ -127,6 +132,11 @@ function KfmScreen() {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const blinkAnim = useRef(new Animated.Value(0.4)).current;
   const floatAnim = useRef(new Animated.Value(0)).current;
+  const { data: program } = useApiQuery(() => contentApi.program('kfm'), [], { cacheKey: 'program_kfm' });
+  const topics = (program?.data?.topics as KfmTopic[] | undefined)?.length ? (program!.data.topics as KfmTopic[]) : KFM_TOPICS;
+  const sections = (program?.data?.sections as KfmSection[] | undefined) ?? [];
+  const tujuan = sections.find((section) => section.title === 'Tujuan')?.items ?? TUJUAN;
+  const pertanyaanHarta = sections.find((section) => section.title === 'Pertanyaan Harta')?.items ?? PERTANYAAN_HARTA;
 
   useEffect(() => {
     Animated.loop(
@@ -176,9 +186,7 @@ function KfmScreen() {
           ]}
         >
           <Pressable
-            onPress={() => {
-              // Temporary CTA for seminar announcement; can be connected to an event detail later.
-            }}
+            onPress={() => router.push('/event' as any)}
             style={styles.floatingPromoButton}
           >
             <Animated.View style={[styles.floatingIconWrap, { opacity: blinkAnim }]}>
@@ -216,7 +224,7 @@ function KfmScreen() {
         {/* Fokus Kajian */}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Fokus Kajian KFM</Text>
 
-        {KFM_TOPICS.map((topic) => {
+        {topics.map((topic) => {
           const isExpanded = expandedTopic === topic.id;
           return (
             <Pressable
@@ -254,7 +262,7 @@ function KfmScreen() {
           <Text style={[styles.tujuanDesc, { color: colors.textSecondary }]}>
             KFM bukan sekadar kajian tentang teori fiqih. Tujuan utamanya adalah membangun kesadaran agar Sahabat NASUHA mampu:
           </Text>
-          {TUJUAN.map((t, i) => (
+          {tujuan.map((t, i) => (
             <View key={i} style={styles.tujuanRow}>
               <Ionicons name="checkmark-circle" size={16} color={colors.gold} />
               <Text style={[styles.tujuanText, { color: colors.text }]}>{t}</Text>
@@ -266,7 +274,7 @@ function KfmScreen() {
         <View style={[styles.hartaCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
           <Text style={[styles.hartaTitle, { color: colors.text }]}>Dalam Islam, Persoalan Harta Bukan Hanya Tentang Berapa Banyak</Text>
           <Text style={[styles.hartaSub, { color: colors.textSecondary }]}>Tetapi juga tentang:</Text>
-          {PERTANYAAN_HARTA.map((q, i) => (
+          {pertanyaanHarta.map((q, i) => (
             <View key={i} style={styles.hartaRow}>
               <Text style={[styles.hartaNum, { color: colors.primary }]}>{i + 1}.</Text>
               <Text style={[styles.hartaText, { color: colors.text }]}>{q}</Text>

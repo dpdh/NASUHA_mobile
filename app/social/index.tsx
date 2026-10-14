@@ -7,13 +7,17 @@ import {
   Pressable,
   Linking,
   Alert,
-  FlatList,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
+import type { SocialLink, SocialPost } from '../../types';
+import { relativeTime } from '../../utils/date';
 
 interface SocialItem {
   id: string;
@@ -66,13 +70,14 @@ const SOCIAL_LINKS: SocialItem[] = [
 
 interface ContentPost {
   id: string;
-  platform: 'instagram' | 'tiktok';
-  type: 'post' | 'reel' | 'video';
+  platform: 'instagram' | 'tiktok' | 'youtube';
+  type: string;
   title: string;
   description: string;
-  likes: string;
-  comments: string;
+  likes?: string;
+  comments?: string;
   date: string;
+  thumbnail?: string | null;
   url: string;
   deepLink?: string;
 }
@@ -146,14 +151,54 @@ const NASUHA_CONTENT: ContentPost[] = [
 
 type TabFilter = 'semua' | 'instagram' | 'tiktok';
 
+const PLATFORM_META: Record<ContentPost['platform'], { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; colors: [string, string, ...string[]] }> = {
+  instagram: { label: 'Instagram', icon: 'logo-instagram', colors: ['#833AB4', '#C13584', '#E1306C'] },
+  tiktok: { label: 'TikTok', icon: 'logo-tiktok', colors: ['#010101', '#25F4EE', '#FE2C55'] },
+  youtube: { label: 'YouTube', icon: 'logo-youtube', colors: ['#FF0000', '#CC0000'] },
+};
+
+function linkFromRemote(link: SocialLink): SocialItem {
+  return {
+    ...link,
+    icon: link.icon as SocialItem['icon'],
+    gradient: [link.gradient[0] || link.color, link.gradient[1] || link.gradient[0] || link.color],
+    deepLink: link.deepLink || undefined,
+  };
+}
+
+function postFromRemote(post: SocialPost): ContentPost {
+  return {
+    id: post.id,
+    platform: post.platform,
+    type: post.type,
+    title: post.title,
+    description: post.description,
+    date: relativeTime(post.publishedAt),
+    thumbnail: post.thumbnail,
+    url: post.url,
+    deepLink: post.deepLink || undefined,
+  };
+}
+
+function postTypeLabel(type: string): string {
+  const value = type.toLowerCase();
+  if (value.startsWith('reel')) return 'Reels';
+  if (value === 'video') return 'Video';
+  return 'Post';
+}
+
 function SocialScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
   const [activeTab, setActiveTab] = useState<TabFilter>('semua');
+  const { data: remoteLinks } = useApiQuery(() => contentApi.socialLinks(), [], { cacheKey: 'social_links' });
+  const { data: remotePosts } = useApiQuery(() => contentApi.socialPosts(), [], { cacheKey: 'social_posts' });
+  const socialLinks = remoteLinks?.length ? remoteLinks.map(linkFromRemote) : SOCIAL_LINKS;
+  const content = remotePosts?.length ? remotePosts.map(postFromRemote) : NASUHA_CONTENT;
 
   const filteredContent = activeTab === 'semua'
-    ? NASUHA_CONTENT
-    : NASUHA_CONTENT.filter((p) => p.platform === activeTab);
+    ? content
+    : content.filter((p) => p.platform === activeTab);
 
   const handleOpen = useCallback(async (item: { deepLink?: string; url: string; name?: string }) => {
     try {
@@ -193,7 +238,7 @@ function SocialScreen() {
       </LinearGradient>
 
       {/* Social Account Cards */}
-      {SOCIAL_LINKS.map((item) => (
+      {socialLinks.map((item) => (
         <Pressable
           key={item.id}
           onPress={() => handleOpen(item as any)}
@@ -257,11 +302,11 @@ function SocialScreen() {
           >
             <View style={styles.postHeader}>
               <LinearGradient
-                colors={post.platform === 'instagram' ? ['#833AB4', '#E1306C'] : ['#25F4EE', '#FE2C55']}
+                colors={PLATFORM_META[post.platform].colors}
                 style={styles.postPlatformIcon}
               >
                 <Ionicons
-                  name={post.platform === 'instagram' ? 'logo-instagram' : 'logo-tiktok'}
+                  name={PLATFORM_META[post.platform].icon}
                   size={16}
                   color="#FFF"
                 />
@@ -269,11 +314,11 @@ function SocialScreen() {
               <View style={{ flex: 1 }}>
                 <View style={styles.postNameRow}>
                   <Text style={[styles.postPlatformName, { color: colors.text }]}>
-                    {post.platform === 'instagram' ? 'Instagram' : 'TikTok'}
+                    {PLATFORM_META[post.platform].label}
                   </Text>
                   <View style={[styles.postTypeBadge, { backgroundColor: colors.primary + '15' }]}>
                     <Text style={[styles.postTypeText, { color: colors.primary }]}>
-                      {post.type === 'reel' ? 'Reels' : post.type === 'video' ? 'Video' : 'Post'}
+                      {postTypeLabel(post.type)}
                     </Text>
                   </View>
                 </View>
@@ -281,22 +326,23 @@ function SocialScreen() {
               </View>
             </View>
 
-            {/* Thumbnail placeholder */}
-            <LinearGradient
-              colors={post.platform === 'instagram'
-                ? ['#833AB4', '#C13584', '#E1306C']
-                : ['#010101', '#25F4EE', '#FE2C55']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.postThumbnail}
-            >
-              <Ionicons
-                name={post.type === 'reel' || post.type === 'video' ? 'play-circle' : 'image'}
-                size={40}
-                color="rgba(255,255,255,0.8)"
-              />
-              <Text style={styles.postThumbnailText}>Ketuk untuk buka di {post.platform === 'instagram' ? 'Instagram' : 'TikTok'}</Text>
-            </LinearGradient>
+            {post.thumbnail ? (
+              <Image source={{ uri: post.thumbnail }} style={styles.postThumbnail} resizeMode="cover" />
+            ) : (
+              <LinearGradient
+                colors={PLATFORM_META[post.platform].colors}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.postThumbnail}
+              >
+                <Ionicons
+                  name={postTypeLabel(post.type) === 'Post' ? 'image' : 'play-circle'}
+                  size={40}
+                  color="rgba(255,255,255,0.8)"
+                />
+                <Text style={styles.postThumbnailText}>Ketuk untuk buka di {PLATFORM_META[post.platform].label}</Text>
+              </LinearGradient>
+            )}
 
             <Text style={[styles.postTitle, { color: colors.text }]}>{post.title}</Text>
             <Text style={[styles.postDesc, { color: colors.textSecondary }]} numberOfLines={2}>
@@ -304,14 +350,18 @@ function SocialScreen() {
             </Text>
 
             <View style={styles.postStats}>
-              <View style={styles.postStatItem}>
-                <Ionicons name="heart" size={14} color="#E1306C" />
-                <Text style={[styles.postStatText, { color: colors.textSecondary }]}>{post.likes}</Text>
-              </View>
-              <View style={styles.postStatItem}>
-                <Ionicons name="chatbubble" size={14} color={colors.primary} />
-                <Text style={[styles.postStatText, { color: colors.textSecondary }]}>{post.comments}</Text>
-              </View>
+              {!!post.likes && (
+                <View style={styles.postStatItem}>
+                  <Ionicons name="heart" size={14} color="#E1306C" />
+                  <Text style={[styles.postStatText, { color: colors.textSecondary }]}>{post.likes}</Text>
+                </View>
+              )}
+              {!!post.comments && (
+                <View style={styles.postStatItem}>
+                  <Ionicons name="chatbubble" size={14} color={colors.primary} />
+                  <Text style={[styles.postStatText, { color: colors.textSecondary }]}>{post.comments}</Text>
+                </View>
+              )}
               <View style={{ flex: 1 }} />
               <Ionicons name="open-outline" size={16} color={colors.primary} />
             </View>

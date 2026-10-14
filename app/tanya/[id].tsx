@@ -8,47 +8,74 @@ import {
   TextInput,
   Alert,
   KeyboardAvoidingView,
-  Platform,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { ApiError, errorMessage } from '../../services/api';
+import { questionApi } from '../../services/nasjakApi';
 import type { Answer } from '../../types';
 
 const CAT_COLORS: Record<string, string> = { 'Keuangan Syariah': '#2EC4B6', Hijrah: '#7B61FF', Fiqh: '#D4A853', Bisnis: '#FF6B6B', Umum: '#4A90D9' };
 
 const AnswerCard = memo(({ item, colors }: { item: Answer; colors: typeof Colors.light }) => (
-  <View style={[styles.answerCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+  <View style={[
+    styles.answerCard,
+    { backgroundColor: colors.surface, borderColor: item.isOfficial ? colors.success : colors.border },
+    item.isOfficial && { borderWidth: 1.5 },
+  ]}>
     <View style={styles.answerHeader}>
-      <View style={[styles.answerAvatar, { backgroundColor: colors.primary }]}>
+      <View style={[styles.answerAvatar, { backgroundColor: item.isOfficial ? colors.success : colors.primary }]}>
         <Text style={styles.answerAvatarText}>{item.userName.charAt(0)}</Text>
       </View>
       <View style={{ flex: 1 }}>
         <Text style={[styles.answerName, { color: colors.text }]}>{item.userName}</Text>
         <Text style={[styles.answerDate, { color: colors.textMuted }]}>{new Date(item.createdAt).toLocaleDateString('id-ID')}</Text>
       </View>
+      {item.isOfficial && (
+        <View style={[styles.officialBadge, { backgroundColor: colors.success + '20' }]}>
+          <Ionicons name="checkmark-circle" size={12} color={colors.success} />
+          <Text style={[styles.officialText, { color: colors.success }]}>Jawaban Resmi Ustadz</Text>
+        </View>
+      )}
     </View>
     <Text style={[styles.answerBody, { color: colors.textSecondary }]}>{item.body}</Text>
   </View>
 ));
+AnswerCard.displayName = 'AnswerCard';
 
 function TanyaDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
-  const questions = useAppStore((s) => s.questions);
-  const addAnswer = useAppStore((s) => s.addAnswer);
   const colors = Colors[theme];
+  const insets = useSafeAreaInsets();
 
-  const question = questions.find((q) => q.id === id);
+  const { data: question, loading, refreshing, refresh, reload, error } = useApiQuery(
+    () => questionApi.detail(String(id)),
+    [id],
+  );
   const [answerText, setAnswerText] = useState('');
+  const [sending, setSending] = useState(false);
+
+  if (loading) {
+    return (
+      <View style={[styles.empty, { backgroundColor: colors.background }]}>
+        <ActivityIndicator color={colors.primary} />
+      </View>
+    );
+  }
 
   if (!question) {
     return (
       <View style={[styles.empty, { backgroundColor: colors.background }]}>
         <Ionicons name="help-circle-outline" size={64} color={colors.textMuted} />
-        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>Pertanyaan tidak ditemukan</Text>
+        <Text style={[styles.emptyText, { color: colors.textSecondary }]}>{error || 'Pertanyaan tidak ditemukan'}</Text>
         <Pressable onPress={() => router.back()} style={[styles.backBtn, { borderColor: colors.primary }]}>
           <Text style={{ color: colors.primary, fontWeight: '700' }}>Kembali</Text>
         </Pressable>
@@ -56,34 +83,71 @@ function TanyaDetailScreen() {
     );
   }
 
-  const handleSubmitAnswer = () => {
+  const answers = question.answers ?? [];
+  const canDelete = Boolean(question.isMine) && !question.hasOfficialAnswer;
+
+  const handleSubmitAnswer = async () => {
     if (!answerText.trim()) return Alert.alert('Error', 'Jawaban harus diisi');
     if (!user) return Alert.alert('Error', 'Silakan login terlebih dahulu');
 
-    addAnswer(question.id, {
-      userId: user.id,
-      userName: user.name,
-      userAvatar: user.avatar,
-      body: answerText.trim(),
-    });
-    setAnswerText('');
-    Alert.alert('Berhasil', 'Jawaban berhasil dikirim!');
+    setSending(true);
+    try {
+      await questionApi.answer(question.id, answerText.trim());
+      setAnswerText('');
+      await reload();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.isFeatureLocked) {
+        Alert.alert('Fitur Khusus Member', 'Menjawab pertanyaan tersedia untuk member. Hubungi admin atau korda Anda untuk upgrade membership.');
+      } else {
+        Alert.alert('Gagal', errorMessage(caught));
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const handleDelete = () => {
+    Alert.alert('Hapus Pertanyaan', 'Yakin ingin menghapus pertanyaan ini?', [
+      { text: 'Batal', style: 'cancel' },
+      {
+        text: 'Hapus',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await questionApi.remove(question.id);
+            router.back();
+          } catch (caught) {
+            Alert.alert('Gagal', errorMessage(caught));
+          }
+        },
+      },
+    ]);
   };
 
   const catColor = CAT_COLORS[question.category] || colors.primary;
 
   return (
-    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
       <View style={[styles.container, { backgroundColor: colors.background }]}>
         <View style={[styles.header, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
           <Pressable onPress={() => router.back()} hitSlop={12}>
             <Ionicons name="arrow-back" size={24} color={colors.text} />
           </Pressable>
           <Text style={[styles.headerTitle, { color: colors.text }]}>Detail Pertanyaan</Text>
-          <View style={{ width: 24 }} />
+          {canDelete ? (
+            <Pressable onPress={handleDelete} hitSlop={12}>
+              <Ionicons name="trash-outline" size={22} color={colors.error} />
+            </Pressable>
+          ) : (
+            <View style={{ width: 24 }} />
+          )}
         </View>
 
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.primary} />}
+        >
           {/* Question */}
           <View style={[styles.questionCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
             <View style={styles.qHeader}>
@@ -107,21 +171,21 @@ function TanyaDetailScreen() {
           {/* Answers */}
           <View style={styles.answersSection}>
             <Text style={[styles.answersTitle, { color: colors.text }]}>
-              {question.answers.length} Jawaban
+              {answers.length} Jawaban
             </Text>
-            {question.answers.length === 0 ? (
+            {answers.length === 0 ? (
               <View style={styles.noAnswers}>
                 <Ionicons name="chatbubble-ellipses-outline" size={40} color={colors.textMuted} />
                 <Text style={[styles.noAnswersText, { color: colors.textSecondary }]}>Belum ada jawaban. Jadilah yang pertama menjawab!</Text>
               </View>
             ) : (
-              question.answers.map((a) => <AnswerCard key={a.id} item={a} colors={colors} />)
+              answers.map((a) => <AnswerCard key={a.id} item={a} colors={colors} />)
             )}
           </View>
         </ScrollView>
 
         {/* Answer Input */}
-        <View style={[styles.inputBar, { backgroundColor: colors.card, borderTopColor: colors.border }]}>
+        <View style={[styles.inputBar, { paddingBottom: Spacing.md + insets.bottom, backgroundColor: colors.card, borderTopColor: colors.border }]}>
           <TextInput
             style={[styles.answerInput, { backgroundColor: colors.surface, borderColor: colors.border, color: colors.text }]}
             placeholder="Tulis jawaban..."
@@ -130,8 +194,8 @@ function TanyaDetailScreen() {
             onChangeText={setAnswerText}
             multiline
           />
-          <Pressable onPress={handleSubmitAnswer} style={[styles.sendBtn, { backgroundColor: colors.primary }]}>
-            <Ionicons name="send" size={18} color="#FFF" />
+          <Pressable onPress={handleSubmitAnswer} disabled={sending} style={[styles.sendBtn, { backgroundColor: colors.primary, opacity: sending ? 0.6 : 1 }]}>
+            {sending ? <ActivityIndicator size="small" color="#FFF" /> : <Ionicons name="send" size={18} color="#FFF" />}
           </Pressable>
         </View>
       </View>
@@ -165,6 +229,8 @@ const styles = StyleSheet.create({
   answerAvatarText: { color: '#FFF', fontWeight: '700', fontSize: FontSize.sm },
   answerName: { fontSize: FontSize.sm, fontWeight: '700' },
   answerDate: { fontSize: FontSize.xs },
+  officialBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 3, borderRadius: BorderRadius.full },
+  officialText: { fontSize: 10, fontWeight: '800' },
   answerBody: { fontSize: FontSize.sm, lineHeight: 20, marginTop: Spacing.sm },
   noAnswers: { alignItems: 'center', paddingVertical: Spacing.xl, gap: Spacing.sm },
   noAnswersText: { fontSize: FontSize.sm, textAlign: 'center' },

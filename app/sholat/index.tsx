@@ -2,6 +2,7 @@ import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { setAudioModeAsync, useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
+import { useForegroundPermissions } from 'expo-location';
 import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { BorderRadius, FontSize, Shadows, Spacing, getColors } from '../../constants/theme';
@@ -13,6 +14,10 @@ const ADHAN_AUDIO_URL = 'https://www.islamcan.com/audio/adhan/azan1.mp3';
 const mapsModule = getMaps();
 
 function NearbyMosqueMap({ location, mosques }: { location: PrayerLocation; mosques: NearbyMosque[] }) {
+  // Titik "lokasi saya" hanya boleh aktif bila izin lokasi sudah diberikan; tanpa izin Google Maps Android
+  // melempar SecurityException dan app tertutup.
+  const [locationPermission] = useForegroundPermissions();
+  const showMyLocation = Boolean(locationPermission?.granted);
   const markers = mosques.map((mosque) => ({
     id: mosque.id,
     coordinates: { latitude: mosque.latitude, longitude: mosque.longitude },
@@ -30,14 +35,14 @@ function NearbyMosqueMap({ location, mosques }: { location: PrayerLocation; mosq
     if (!GoogleMaps?.View) {
       return <View style={[styles.inlineMapFallback, { backgroundColor: '#E8F0F0' }]}><Ionicons name="map-outline" size={28} color="#739AA6" /><Text style={styles.mapFallbackText}>Peta tidak tersedia pada perangkat ini</Text></View>;
     }
-    return <GoogleMaps.View style={styles.inlineMap} cameraPosition={{ coordinates: { latitude: location.latitude, longitude: location.longitude }, zoom: 13 }} markers={markers} properties={{ isMyLocationEnabled: true }} uiSettings={{ compassEnabled: true, zoomControlsEnabled: true }} />;
+    return <GoogleMaps.View style={styles.inlineMap} cameraPosition={{ coordinates: { latitude: location.latitude, longitude: location.longitude }, zoom: 13 }} markers={markers} properties={{ isMyLocationEnabled: showMyLocation }} uiSettings={{ compassEnabled: true, zoomControlsEnabled: true }} />;
   }
 
   const AppleMaps = mapsModule.AppleMaps;
   if (!AppleMaps?.View) {
     return <View style={[styles.inlineMapFallback, { backgroundColor: '#E8F0F0' }]}><Ionicons name="map-outline" size={28} color="#739AA6" /><Text style={styles.mapFallbackText}>Peta tidak tersedia pada perangkat ini</Text></View>;
   }
-  return <AppleMaps.View style={styles.inlineMap} cameraPosition={{ coordinates: { latitude: location.latitude, longitude: location.longitude }, zoom: 13 }} annotations={markers.map((marker) => ({ ...marker, systemImage: 'building.2' }))} properties={{ isMyLocationEnabled: true }} />;
+  return <AppleMaps.View style={styles.inlineMap} cameraPosition={{ coordinates: { latitude: location.latitude, longitude: location.longitude }, zoom: 13 }} annotations={markers.map((marker) => ({ ...marker, systemImage: 'building.2' }))} properties={{ isMyLocationEnabled: showMyLocation }} />;
 }
 
 function getNextPrayer(times: PrayerTimes | null) {

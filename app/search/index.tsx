@@ -1,4 +1,4 @@
-import React, { memo, useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -6,14 +6,16 @@ import {
   FlatList,
   Pressable,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
-import { MOTIVASI_QUOTES, SAMPLE_EVENTS, SAMPLE_TESTIMONIALS } from '../../constants/data';
+import { errorMessage } from '../../services/api';
+import { contentApi } from '../../services/nasjakApi';
 
-type ResultType = 'motivasi' | 'event' | 'testimoni' | 'quran' | 'hadis';
+type ResultType = 'quran' | 'hadis' | 'program' | 'events' | 'products' | 'articles' | 'quotes' | 'doas' | 'testimonials' | 'questions';
 
 interface SearchResult {
   id: string;
@@ -25,57 +27,68 @@ interface SearchResult {
 }
 
 const TYPE_ICONS: Record<ResultType, React.ComponentProps<typeof Ionicons>['name']> = {
-  quran: 'book', hadis: 'library', motivasi: 'bulb', event: 'calendar', testimoni: 'heart',
+  quran: 'book', hadis: 'library', program: 'people', events: 'calendar', products: 'storefront', articles: 'newspaper',
+  quotes: 'bulb', doas: 'hand-left', testimonials: 'heart', questions: 'help-circle',
 };
 
 const TYPE_LABELS: Record<ResultType, string> = {
-  quran: "Al-Qur'an", hadis: 'Hadis', motivasi: 'Motivasi', event: 'Event', testimoni: 'Testimoni',
+  quran: "Al-Qur'an", hadis: 'Hadis', program: 'Program', events: 'Event', products: 'Lapak', articles: 'Artikel',
+  quotes: 'Motivasi', doas: 'Doa', testimonials: 'Testimoni', questions: 'Tanya',
 };
+
+const REMOTE_TYPES: ResultType[] = ['events', 'products', 'articles', 'quotes', 'doas', 'testimonials', 'questions'];
+
+// Pintasan statis: cocok bila kata kunci mengandung / terkandung dalam salah satu keyword.
+const SHORTCUTS: { keywords: string[]; result: SearchResult }[] = [
+  { keywords: ['quran', 'al-quran', 'surah', 'surat', 'ayat', 'juz'], result: { id: 'quran', type: 'quran', title: "Al-Qur'an", subtitle: '114 Surah lengkap', icon: 'book', route: '/(tabs)/quran' } },
+  { keywords: ['hadis', 'hadits', 'hadith', 'bukhari', 'muslim'], result: { id: 'hadis', type: 'hadis', title: 'Hadis', subtitle: '9 Kitab • 38,000+ hadis', icon: 'library', route: '/hadis/' } },
+  { keywords: ['tsn', 'temu sahabat'], result: { id: 'tsn', type: 'program', title: 'Temu Sahabat NASUHA', subtitle: 'Program TSN', icon: 'people', route: '/tsn/' } },
+  { keywords: ['lbu', 'bebas utang', 'lunasi', 'utang', 'hutang'], result: { id: 'lbu', type: 'program', title: 'Langkah Bebas Utang', subtitle: 'Program LBU', icon: 'rocket', route: '/lbu/' } },
+];
 
 function SearchScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
   const [query, setQuery] = useState('');
+  // Hasil disimpan bersama kata kuncinya; status "mencari" diturunkan dari selisih query (tanpa setState sinkron di effect).
+  const [remote, setRemote] = useState<{ query: string; items: SearchResult[]; error: string | null }>({ query: '', items: [], error: null });
+
+  const trimmed = query.trim();
+  const searching = trimmed.length >= 2 && remote.query !== trimmed;
+  const error = remote.query === trimmed ? remote.error : null;
+
+  useEffect(() => {
+    if (trimmed.length < 2) return undefined;
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        const data = await contentApi.search(trimmed);
+        if (cancelled) return;
+        const out: SearchResult[] = [];
+        for (const type of REMOTE_TYPES) {
+          for (const item of data[type] ?? []) {
+            out.push({ id: `${type}-${item.id}`, type, title: item.title, subtitle: item.subtitle, icon: TYPE_ICONS[type], route: item.route });
+          }
+        }
+        setRemote({ query: trimmed, items: out, error: null });
+      } catch (caught) {
+        if (!cancelled) setRemote({ query: trimmed, items: [], error: errorMessage(caught) });
+      }
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [trimmed]);
 
   const results = useMemo<SearchResult[]>(() => {
-    if (query.trim().length < 2) return [];
-    const q = query.toLowerCase();
-    const out: SearchResult[] = [];
-
-    // Search motivasi
-    for (const m of MOTIVASI_QUOTES) {
-      if (m.text.toLowerCase().includes(q) || m.author.toLowerCase().includes(q) || m.category.toLowerCase().includes(q)) {
-        out.push({ id: `m-${m.id}`, type: 'motivasi', title: m.text.substring(0, 60) + '...', subtitle: `${m.author} • ${m.category}`, icon: 'bulb', route: '/motivasi/' });
-      }
-    }
-    // Search events
-    for (const e of SAMPLE_EVENTS) {
-      if (e.title.toLowerCase().includes(q) || e.description.toLowerCase().includes(q) || e.type.toLowerCase().includes(q)) {
-        out.push({ id: `e-${e.id}`, type: 'event', title: e.title, subtitle: `${e.date} • ${e.location}`, icon: 'calendar', route: `/event/${e.id}` });
-      }
-    }
-    // Search testimonials
-    for (const t of SAMPLE_TESTIMONIALS) {
-      if (t.text.toLowerCase().includes(q) || t.name.toLowerCase().includes(q) || t.program.toLowerCase().includes(q)) {
-        out.push({ id: `t-${t.id}`, type: 'testimoni', title: t.name, subtitle: t.text.substring(0, 60) + '...', icon: 'heart', route: '/testimoni/' });
-      }
-    }
-    // Static search hints for quran/hadis
-    if ('quran'.includes(q) || 'al-quran'.includes(q) || 'surah'.includes(q) || 'ayat'.includes(q)) {
-      out.push({ id: 'quran', type: 'quran', title: "Al-Qur'an", subtitle: '114 Surah lengkap', icon: 'book', route: '/(tabs)/quran' });
-    }
-    if ('hadis'.includes(q) || 'hadith'.includes(q) || 'bukhari'.includes(q) || 'muslim'.includes(q)) {
-      out.push({ id: 'hadis', type: 'hadis', title: 'Hadis', subtitle: '9 Kitab • 38,000+ hadis', icon: 'library', route: '/hadis/' });
-    }
-    if ('tsn'.includes(q) || 'temu solusi'.includes(q)) {
-      out.push({ id: 'tsn', type: 'event', title: 'Temu Solusi NASUHA', subtitle: 'Program TSN', icon: 'people', route: '/tsn/' });
-    }
-    if ('lbu'.includes(q) || 'bebas utang'.includes(q) || 'lunasi'.includes(q)) {
-      out.push({ id: 'lbu', type: 'event', title: 'Langkah Bebas Utang', subtitle: 'Program LBU', icon: 'rocket', route: '/lbu/' });
-    }
-
-    return out.slice(0, 20);
-  }, [query]);
+    if (trimmed.length < 2) return [];
+    const q = trimmed.toLowerCase();
+    const shortcuts = SHORTCUTS
+      .filter(({ keywords }) => keywords.some((keyword) => keyword.includes(q) || q.includes(keyword)))
+      .map(({ result }) => result);
+    return [...shortcuts, ...(remote.query === trimmed ? remote.items : [])];
+  }, [trimmed, remote]);
 
   const renderItem = useCallback(
     ({ item }: { item: SearchResult }) => (
@@ -84,7 +97,7 @@ function SearchScreen() {
         style={[styles.resultCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}
       >
         <View style={[styles.resultIcon, { backgroundColor: colors.primary + '15' }]}>
-          <Ionicons name={item.icon} size={20} color={colors.primary} />
+          <Ionicons name={item.icon || TYPE_ICONS[item.type]} size={20} color={colors.primary} />
         </View>
         <View style={{ flex: 1 }}>
           <View style={styles.resultHeaderRow}>
@@ -130,14 +143,18 @@ function SearchScreen() {
         <View style={styles.hintBox}>
           <Ionicons name="search" size={48} color={colors.textMuted} />
           <Text style={[styles.hintText, { color: colors.textSecondary }]}>
-            Cari ayat Al-Qur'an, Hadis, Motivasi, Event, TSN, LBU, Testimoni...
+            Cari Event, Lapak, Artikel, Motivasi, Doa, Testimoni, Tanya Ustadz, TSN, LBU...
           </Text>
+        </View>
+      ) : results.length === 0 && searching ? (
+        <View style={styles.hintBox}>
+          <ActivityIndicator color={colors.primary} />
         </View>
       ) : results.length === 0 ? (
         <View style={styles.hintBox}>
-          <Ionicons name="sad-outline" size={48} color={colors.textMuted} />
+          <Ionicons name={error ? 'cloud-offline-outline' : 'sad-outline'} size={48} color={colors.textMuted} />
           <Text style={[styles.hintText, { color: colors.textSecondary }]}>
-            Tidak ditemukan hasil untuk "{query}"
+            {error || `Tidak ditemukan hasil untuk "${query}"`}
           </Text>
         </View>
       ) : (
@@ -147,6 +164,8 @@ function SearchScreen() {
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          ListFooterComponent={searching ? <ActivityIndicator style={{ marginTop: Spacing.md }} color={colors.primary} /> : null}
         />
       )}
     </View>

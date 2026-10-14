@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -9,6 +9,8 @@ import {
   TextInput,
   Image,
   ScrollView,
+  ActivityIndicator,
+  RefreshControl,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -16,16 +18,21 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
-import type { User, LapakProduct, Event, MembershipPlan } from '../../types';
+import { errorMessage } from '../../services/api';
+import { adminApi, type AdminDashboard } from '../../services/nasjakApi';
+import type { User, LapakProduct, Event, EventRegistration, MembershipPlan, MembershipType } from '../../types';
 
-const ROLE_COLORS: Record<User['role'], string> = { super_admin: '#FF6B6B', admin: '#D4A853', sahabat: '#2EC4B6', calon_sahabat: '#999999' };
-const ROLE_LABELS: Record<User['role'], string> = { super_admin: 'Super Admin', admin: 'Admin', sahabat: 'Sahabat NASUHA', calon_sahabat: 'Calon Sahabat' };
+const ROLE_COLORS: Record<User['role'], string> = { super_admin: '#FF6B6B', admin: '#D4A853', ustadz: '#16A34A', sahabat: '#2EC4B6', calon_sahabat: '#999999' };
+const ROLE_LABELS: Record<User['role'], string> = { super_admin: 'Super Admin', admin: 'Admin', ustadz: 'Ustadz', sahabat: 'Sahabat NASUHA', calon_sahabat: 'Calon Sahabat' };
+const ALL_ROLES: User['role'][] = ['calon_sahabat', 'sahabat', 'ustadz', 'admin', 'super_admin'];
+const ADMIN_ASSIGNABLE_ROLES: User['role'][] = ['calon_sahabat', 'sahabat', 'ustadz'];
+const MEMBERSHIP_LABELS: Record<MembershipType, string> = { free: 'Free Member', membership: 'Membership', sahabat: 'Sahabat NASUHA' };
+const isStaffRole = (role: User['role']) => role === 'super_admin' || role === 'admin';
 const STATUS_COLORS: Record<LapakProduct['status'], string> = { pending: '#FFB347', approved: '#2EC4B6', rejected: '#FF6B6B' };
 const STATUS_LABELS: Record<LapakProduct['status'], string> = { pending: 'Menunggu', approved: 'Disetujui', rejected: 'Ditolak' };
 
 type CmsTab = 'users' | 'lapak' | 'events' | 'registrations' | 'membership';
 type LapakFilter = 'semua' | 'pending' | 'approved' | 'rejected';
-type MembershipFilter = 'semua' | 'free' | 'membership' | 'sahabat';
 type EventFilter = 'semua' | 'published' | 'draft' | 'cancelled';
 const EVENT_STATUS_COLORS: Record<string, string> = { published: '#2EC4B6', draft: '#FFB347', cancelled: '#FF6B6B' };
 const EVENT_STATUS_LABELS: Record<string, string> = { published: 'Published', draft: 'Draft', cancelled: 'Dibatalkan' };
@@ -34,8 +41,11 @@ const EVENT_TYPE_COLORS: Record<string, string> = { TSN: '#4A90D9', LBU: '#2EC4B
 // ─── Member Card ───
 const MemberCard = memo(({ item, isCurrentUser, currentUserRole, colors, membershipPlans, onChangeRole, onToggleActive, onRemove, onToggleFeature }: {
   item: User; isCurrentUser: boolean; currentUserRole: User['role']; colors: typeof Colors.light;
-  membershipPlans: MembershipPlan[]; onChangeRole: (id: string, role: User['role']) => void; onToggleActive: (id: string) => void; onRemove: (id: string) => void; onToggleFeature: (user: User, featureId: string, enabled: boolean) => void;
-}) => (
+  membershipPlans: MembershipPlan[]; onChangeRole: (user: User, role: User['role']) => void; onToggleActive: (user: User) => void; onRemove: (user: User) => void; onToggleFeature: (user: User, featureId: string, enabled: boolean) => void;
+}) => {
+  // Admin tidak boleh mengubah akun staf lain; hanya Super Admin yang bisa.
+  const canManage = !isCurrentUser && (currentUserRole === 'super_admin' || !isStaffRole(item.role));
+  return (
   <View style={[styles.card, { backgroundColor: colors.card, borderColor: item.isActive ? colors.border : colors.error + '40', opacity: item.isActive ? 1 : 0.6 }, Shadows.sm]}>
     <View style={styles.cardRow}>
       {item.avatar ? (
@@ -51,7 +61,9 @@ const MemberCard = memo(({ item, isCurrentUser, currentUserRole, colors, members
           {isCurrentUser && <View style={[styles.youBadge, { backgroundColor: colors.primary }]}><Text style={styles.youText}>Anda</Text></View>}
         </View>
         <Text style={[styles.cardSub, { color: colors.textSecondary }]}>{item.email}</Text>
-        <Text style={[styles.cardMeta, { color: colors.textMuted }]}>Bergabung: {new Date(item.joinDate).toLocaleDateString('id-ID')}</Text>
+        <Text style={[styles.cardMeta, { color: colors.textMuted }]}>
+          {MEMBERSHIP_LABELS[item.membershipType || 'free']} · Bergabung {new Date(item.joinDate).toLocaleDateString('id-ID')}
+        </Text>
       </View>
     </View>
     <View style={styles.actionRow}>
@@ -63,14 +75,14 @@ const MemberCard = memo(({ item, isCurrentUser, currentUserRole, colors, members
         <Text style={[styles.badgeText, { color: item.isActive ? colors.success : colors.error }]}>{item.isActive ? 'Aktif' : 'Nonaktif'}</Text>
       </View>
       <Text style={[styles.featureSummary, { color: colors.textMuted }]}>
-        {Object.values(item.membershipFeatures || {}).filter(Boolean).length} fitur khusus
+        {Object.values(item.membershipFeatures || {}).filter(Boolean).length} fitur aktif
       </Text>
       <Pressable onPress={() => {
         const plan = membershipPlans.find((membershipPlan) => membershipPlan.type === (item.membershipType || 'free'));
         const features = plan?.features || [];
         Alert.alert('Pengaturan Fitur', `Atur akses fitur untuk ${item.name}`, [
           ...features.map((feature) => {
-            const enabled = item.membershipFeatures?.[feature.id] ?? feature.enabled;
+            const enabled = Boolean(item.membershipFeatures?.[feature.id]);
             return {
               text: `${enabled ? '✓' : '○'} ${feature.name}`,
               onPress: () => onToggleFeature(item, feature.id, !enabled),
@@ -82,34 +94,34 @@ const MemberCard = memo(({ item, isCurrentUser, currentUserRole, colors, members
         <Ionicons name="options-outline" size={14} color={colors.primary} />
         <Text style={[styles.featureButtonText, { color: colors.primary }]}>Fitur</Text>
       </Pressable>
-      {!isCurrentUser && (
+      {canManage && (
         <View style={styles.btnRow}>
           <Pressable onPress={() => {
-            const allRoles: User['role'][] = ['calon_sahabat', 'sahabat', 'admin', 'super_admin'];
-            const allowedRoles: User['role'][] = currentUserRole === 'super_admin' ? allRoles : ['calon_sahabat', 'sahabat'];
-            const currentIdx = allowedRoles.indexOf(item.role);
-            const next = allowedRoles[(currentIdx + 1) % allowedRoles.length];
-            Alert.alert('Ubah Role', `Jadikan ${item.name} sebagai ${ROLE_LABELS[next]}?`, [
-              { text: 'Batal', style: 'cancel' },
-              { text: `Jadikan ${ROLE_LABELS[next]}`, onPress: () => onChangeRole(item.id, next) },
+            const allowedRoles = (currentUserRole === 'super_admin' ? ALL_ROLES : ADMIN_ASSIGNABLE_ROLES).filter((role) => role !== item.role);
+            Alert.alert('Ubah Role', `Pilih role baru untuk ${item.name}`, [
+              ...allowedRoles.map((role) => ({ text: ROLE_LABELS[role], onPress: () => onChangeRole(item, role) })),
+              { text: 'Batal', style: 'cancel' as const },
             ]);
           }} style={[styles.iconBtn, { backgroundColor: colors.primary + '15' }]}>
             <Ionicons name="shield-outline" size={16} color={colors.primary} />
           </Pressable>
-          <Pressable onPress={() => onToggleActive(item.id)} style={[styles.iconBtn, { backgroundColor: colors.warning + '15' }]}>
+          <Pressable onPress={() => onToggleActive(item)} style={[styles.iconBtn, { backgroundColor: colors.warning + '15' }]}>
             <Ionicons name={item.isActive ? 'pause-outline' : 'play-outline'} size={16} color={colors.warning} />
           </Pressable>
-          <Pressable onPress={() => Alert.alert('Hapus', `Hapus ${item.name}?`, [
-            { text: 'Batal', style: 'cancel' },
-            { text: 'Hapus', style: 'destructive', onPress: () => onRemove(item.id) },
-          ])} style={[styles.iconBtn, { backgroundColor: colors.error + '15' }]}>
-            <Ionicons name="trash-outline" size={16} color={colors.error} />
-          </Pressable>
+          {currentUserRole === 'super_admin' && (
+            <Pressable onPress={() => Alert.alert('Hapus Akun', `Hapus permanen akun ${item.name}?`, [
+              { text: 'Batal', style: 'cancel' },
+              { text: 'Hapus', style: 'destructive', onPress: () => onRemove(item) },
+            ])} style={[styles.iconBtn, { backgroundColor: colors.error + '15' }]}>
+              <Ionicons name="trash-outline" size={16} color={colors.error} />
+            </Pressable>
+          )}
         </View>
       )}
     </View>
   </View>
-));
+  );
+});
 
 // ─── Product Moderation Card ───
 const ProductModCard = memo(({ item, colors, onApprove, onReject, onDelete }: {
@@ -171,7 +183,7 @@ const ProductModCard = memo(({ item, colors, onApprove, onReject, onDelete }: {
 // ─── Event Card ───
 const EventModCard = memo(({ item, colors, onEdit, onPublish, onCancel, onDelete }: {
   item: Event; colors: typeof Colors.light;
-  onEdit: (id: number) => void; onPublish: (id: number) => void; onCancel: (id: number) => void; onDelete: (id: number) => void;
+  onEdit: (id: string) => void; onPublish: (id: string) => void; onCancel: (id: string) => void; onDelete: (id: string) => void;
 }) => {
   const status = item.status || 'published';
   const pct = item.quota > 0 ? Math.round((item.registered / item.quota) * 100) : 0;
@@ -224,27 +236,38 @@ const EventModCard = memo(({ item, colors, onEdit, onPublish, onCancel, onDelete
   );
 });
 
-function MembershipPanel({ plans, members, colors, onUpdateMember, onUpdatePlan }: {
+function MembershipPanel({ plans, members, colors, canEditPlans, onUpdateMember, onTogglePlanFeature, onSavePlan }: {
   plans: MembershipPlan[];
   members: User[];
   colors: typeof Colors.light;
-  onUpdateMember: (userId: string, type: User['membershipType']) => void;
-  onUpdatePlan: (type: MembershipPlan['type'], updates: Partial<MembershipPlan>) => void;
+  canEditPlans: boolean;
+  onUpdateMember: (member: User, type: MembershipType) => void;
+  onTogglePlanFeature: (type: MembershipType, featureId: string) => void;
+  onSavePlan: (plan: MembershipPlan) => void;
 }) {
   return (
     <ScrollView contentContainerStyle={styles.list} showsVerticalScrollIndicator={false}>
+      {!canEditPlans && (
+        <Text style={[styles.cardMeta, { color: colors.warning, textAlign: 'center' }]}>Hanya Super Admin yang dapat mengubah fitur plan.</Text>
+      )}
       {plans.map((plan) => {
         const planMembers = members.filter((member) => (member.membershipType || 'free') === plan.type);
         return (
           <View key={plan.type} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
             <View style={styles.cardRow}>
               <View style={[styles.avatarFallback, { backgroundColor: plan.color }]}><Ionicons name={plan.type === 'free' ? 'person-outline' : plan.type === 'membership' ? 'people-outline' : 'star'} size={24} color="#FFF" /></View>
-              <View style={{ flex: 1 }}><Text style={[styles.cardName, { color: colors.text }]}>{plan.label}</Text><Text style={[styles.cardSub, { color: colors.textSecondary }]}>{plan.description}</Text><Text style={[styles.cardMeta, { color: plan.color }]}>{planMembers.length} member</Text></View>
+              <View style={{ flex: 1 }}><Text style={[styles.cardName, { color: colors.text }]}>{plan.label}</Text><Text style={[styles.cardSub, { color: colors.textSecondary }]}>{plan.description}</Text><Text style={[styles.cardMeta, { color: plan.color }]}>{planMembers.length} member (halaman ini)</Text></View>
             </View>
             <Text style={[styles.featureSectionTitle, { color: colors.textSecondary }]}>FITUR AKSES</Text>
-            <View style={styles.featuresGrid}>{plan.features.map((feature) => <Pressable key={feature.id} onPress={() => onUpdatePlan(plan.type, { features: plan.features.map((currentFeature) => currentFeature.id === feature.id ? { ...currentFeature, enabled: !currentFeature.enabled } : currentFeature) })} style={[styles.featureItem, { backgroundColor: colors.surface, borderColor: feature.enabled ? plan.color + '40' : colors.border }]}><Ionicons name={feature.icon as any} size={19} color={feature.enabled ? plan.color : colors.textMuted} /><Text style={[styles.featureName, { color: colors.text }]}>{feature.name}</Text><Text style={[styles.featureDesc, { color: colors.textMuted }]}>{feature.enabled ? 'Aktif · tekan untuk nonaktifkan' : 'Nonaktif · tekan untuk aktifkan'}</Text></Pressable>)}</View>
+            <View style={styles.featuresGrid}>{plan.features.map((feature) => <Pressable key={feature.id} disabled={!canEditPlans} onPress={() => onTogglePlanFeature(plan.type, feature.id)} style={[styles.featureItem, { backgroundColor: colors.surface, borderColor: feature.enabled ? plan.color + '40' : colors.border }]}><Ionicons name={feature.icon as any} size={19} color={feature.enabled ? plan.color : colors.textMuted} /><Text style={[styles.featureName, { color: colors.text }]}>{feature.name}</Text><Text style={[styles.featureDesc, { color: colors.textMuted }]}>{feature.enabled ? 'Aktif' : 'Nonaktif'}{canEditPlans ? ' · tekan untuk ubah' : ''}</Text></Pressable>)}</View>
+            {canEditPlans && (
+              <Pressable onPress={() => onSavePlan(plan)} style={[styles.addEventBtn, { backgroundColor: plan.color, marginTop: Spacing.md }]}>
+                <Ionicons name="save-outline" size={18} color="#FFF" />
+                <Text style={styles.addEventText}>Simpan Plan {plan.label}</Text>
+              </Pressable>
+            )}
             <Text style={[styles.featureSectionTitle, { color: colors.textSecondary, marginTop: Spacing.md }]}>MEMBER TIER INI</Text>
-            <View style={styles.membersList}>{planMembers.slice(0, 5).map((member) => <Pressable key={member.id} onPress={() => Alert.alert('Ubah Tier Member', `Pilih tier baru untuk ${member.name}`, [{ text: 'Batal', style: 'cancel' }, { text: 'Free Member', onPress: () => onUpdateMember(member.id, 'free') }, { text: 'Membership', onPress: () => onUpdateMember(member.id, 'membership') }, { text: 'Sahabat NASUHA', onPress: () => onUpdateMember(member.id, 'sahabat') }])} style={[styles.memberChip, { backgroundColor: plan.color + '20' }]}><Text style={{ color: plan.color, fontSize: 11, fontWeight: '600' }}>{member.name}</Text></Pressable>)}</View>
+            <View style={styles.membersList}>{planMembers.slice(0, 8).map((member) => <Pressable key={member.id} onPress={() => Alert.alert('Ubah Tier Member', `Pilih tier baru untuk ${member.name}`, [{ text: 'Batal', style: 'cancel' }, { text: 'Free Member', onPress: () => onUpdateMember(member, 'free') }, { text: 'Membership', onPress: () => onUpdateMember(member, 'membership') }, { text: 'Sahabat NASUHA', onPress: () => onUpdateMember(member, 'sahabat') }])} style={[styles.memberChip, { backgroundColor: plan.color + '20' }]}><Text style={{ color: plan.color, fontSize: 11, fontWeight: '600' }}>{member.name}</Text></Pressable>)}</View>
           </View>
         );
       })}
@@ -252,82 +275,243 @@ function MembershipPanel({ plans, members, colors, onUpdateMember, onUpdatePlan 
   );
 }
 
+MemberCard.displayName = 'MemberCard';
+ProductModCard.displayName = 'ProductModCard';
+EventModCard.displayName = 'EventModCard';
+
 // ─── Main Admin Screen ───
+function AdminDenied({ colors }: { colors: typeof Colors.light }) {
+  return (
+    <View style={[styles.denied, { backgroundColor: colors.background }]}>
+      <Ionicons name="lock-closed" size={64} color={colors.textMuted} />
+      <Text style={[styles.deniedTitle, { color: colors.text }]}>Akses Ditolak</Text>
+      <Text style={[styles.deniedSub, { color: colors.textSecondary }]}>Hanya admin yang dapat mengakses halaman ini</Text>
+      <Pressable onPress={() => router.back()} style={[styles.backBtn, { borderColor: colors.primary }]}>
+        <Text style={[styles.backBtnText, { color: colors.primary }]}>Kembali</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function AdminScreen() {
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
-  const members = useAppStore((s) => s.members);
-  const products = useAppStore((s) => s.products);
-  const events = useAppStore((s) => s.events);
-  const eventRegistrations = useAppStore((s) => s.eventRegistrations);
-  const confirmRegistration = useAppStore((s) => s.confirmRegistration);
-  const cancelRegistration = useAppStore((s) => s.cancelRegistration);
-  const updateMemberRole = useAppStore((s) => s.updateMemberRole);
-  const toggleMemberActive = useAppStore((s) => s.toggleMemberActive);
-  const removeMember = useAppStore((s) => s.removeMember);
-  const approveProduct = useAppStore((s) => s.approveProduct);
-  const rejectProduct = useAppStore((s) => s.rejectProduct);
-  const deleteProduct = useAppStore((s) => s.deleteProduct);
-  const updateEvent = useAppStore((s) => s.updateEvent);
-  const deleteEvent = useAppStore((s) => s.deleteEvent);
+  const isStaff = useAppStore((s) => s.isStaff);
   const colors = Colors[theme];
-  const membershipPlans = useAppStore((s) => s.membershipPlans);
-  const updateMembershipPlan = useAppStore((s) => s.updateMembershipPlan);
-  const updateUserMembership = useAppStore((s) => s.updateUserMembership);
-  const updateUserMembershipFeature = useAppStore((s) => s.updateUserMembershipFeature);
+  if (!user || !isStaff()) return <AdminDenied colors={colors} />;
+  return <AdminPanel user={user} colors={colors} />;
+}
+
+function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light }) {
+  const isSuperAdmin = user.role === 'super_admin';
+  const fallbackPlans = useAppStore((s) => s.membershipPlans);
 
   const [activeTab, setActiveTab] = useState<CmsTab>('users');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [lapakFilter, setLapakFilter] = useState<LapakFilter>('semua');
   const [eventFilter, setEventFilter] = useState<EventFilter>('semua');
-  const [membershipFilter, setMembershipFilter] = useState<MembershipFilter>('semua');
 
-  const handleToggleMemberFeature = (member: User, featureId: string, enabled: boolean) => {
-    updateUserMembershipFeature(member.id, featureId, enabled);
-    Alert.alert('Fitur Diperbarui', `${member.name}: fitur ${featureId} sekarang ${enabled ? 'aktif' : 'nonaktif'}.`);
-  };
+  const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
+  const [members, setMembers] = useState<User[]>([]);
+  const [membersTotal, setMembersTotal] = useState(0);
+  const [products, setProducts] = useState<LapakProduct[]>([]);
+  const [productCounts, setProductCounts] = useState<Record<string, number>>({});
+  const [events, setEvents] = useState<Event[]>([]);
+  const [registrations, setRegistrations] = useState<EventRegistration[]>([]);
+  const [plans, setPlans] = useState<MembershipPlan[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  if (!user || (user.role !== 'super_admin' && user.role !== 'admin')) {
-    return (
-      <View style={[styles.denied, { backgroundColor: colors.background }]}>
-        <Ionicons name="lock-closed" size={64} color={colors.textMuted} />
-        <Text style={[styles.deniedTitle, { color: colors.text }]}>Akses Ditolak</Text>
-        <Text style={[styles.deniedSub, { color: colors.textSecondary }]}>Hanya admin yang dapat mengakses halaman ini</Text>
-        <Pressable onPress={() => router.back()} style={[styles.backBtn, { borderColor: colors.primary }]}>
-          <Text style={[styles.backBtnText, { color: colors.primary }]}>Kembali</Text>
-        </Pressable>
-      </View>
-    );
-  }
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 400);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const showError = useCallback((error: unknown) => {
+    Alert.alert('Gagal', errorMessage(error));
+  }, []);
+
+  const loadDashboard = useCallback(async () => {
+    try {
+      setDashboard(await adminApi.dashboard());
+    } catch {
+      // Ringkasan opsional; tab tetap bisa dipakai.
+    }
+  }, []);
+
+  const loadTab = useCallback(async (tab: CmsTab, q: string) => {
+    if (tab === 'users') {
+      const result = await adminApi.users({ q, perPage: 100 });
+      setMembers(result.data);
+      setMembersTotal(result.meta?.total ?? result.data.length);
+    } else if (tab === 'lapak') {
+      const result = await adminApi.products({ q, perPage: 100 });
+      setProducts(result.data);
+      setProductCounts((result.meta?.counts as Record<string, number>) || {});
+    } else if (tab === 'events') {
+      const result = await adminApi.events({ q, perPage: 100 });
+      setEvents(result.data);
+    } else if (tab === 'registrations') {
+      const result = await adminApi.registrations({ q, status: 'registered,confirmed', perPage: 200 });
+      setRegistrations(result.data);
+    } else {
+      const [planList, userResult] = await Promise.all([adminApi.membershipPlans(), adminApi.users({ perPage: 100 })]);
+      setPlans(planList);
+      setMembers(userResult.data);
+      setMembersTotal(userResult.meta?.total ?? userResult.data.length);
+    }
+  }, []);
+
+  const reload = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
+    if (mode === 'refresh') setRefreshing(true);
+    else setLoading(true);
+    try {
+      await Promise.all([loadTab(activeTab, debouncedSearch), loadDashboard()]);
+    } catch (error) {
+      showError(error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [activeTab, debouncedSearch, loadTab, loadDashboard, showError]);
+
+  useEffect(() => {
+    // Ditunda satu tick agar setState tidak terjadi sinkron di dalam effect.
+    const timer = setTimeout(() => reload(), 0);
+    return () => clearTimeout(timer);
+  }, [reload]);
+
+  // Plan dibutuhkan juga di tab Users (dialog pengaturan fitur per anggota).
+  useEffect(() => {
+    adminApi.membershipPlans().then(setPlans).catch(() => {});
+  }, []);
+
+  // ── Aksi user ──
+  const replaceMember = useCallback((updated: User) => {
+    setMembers((list) => list.map((item) => (item.id === updated.id ? updated : item)));
+  }, []);
+
+  const runAction = useCallback(async (action: () => Promise<unknown>, message?: string) => {
+    try {
+      await action();
+      if (message) Alert.alert('Berhasil', message);
+      loadDashboard();
+      // Muat ulang tab aktif agar ringkasan & filter (mis. jumlah pending lapak) ikut ter-update.
+      loadTab(activeTab, debouncedSearch).catch(() => {});
+    } catch (error) {
+      showError(error);
+    }
+  }, [loadDashboard, loadTab, activeTab, debouncedSearch, showError]);
+
+  const handleChangeRole = useCallback((member: User, role: User['role']) => runAction(async () => {
+    replaceMember(await adminApi.setRole(member.id, role));
+  }, `${member.name} sekarang ${ROLE_LABELS[role]}.`), [replaceMember, runAction]);
+
+  const handleToggleActive = useCallback((member: User) => {
+    const execute = () => runAction(async () => {
+      replaceMember(await adminApi.setStatus(member.id, !member.isActive));
+    });
+    if (!member.isActive) {
+      execute();
+      return;
+    }
+    Alert.alert('Nonaktifkan Akun', `Nonaktifkan ${member.name}? Semua sesi login akan dicabut.`, [
+      { text: 'Batal', style: 'cancel' },
+      { text: 'Nonaktifkan', style: 'destructive', onPress: execute },
+    ]);
+  }, [replaceMember, runAction]);
+
+  const handleRemoveMember = useCallback((member: User) => runAction(async () => {
+    await adminApi.deleteUser(member.id);
+    setMembers((list) => list.filter((item) => item.id !== member.id));
+  }, 'Akun dihapus.'), [runAction]);
+
+  const handleToggleMemberFeature = useCallback((member: User, featureId: string, enabled: boolean) => runAction(async () => {
+    replaceMember(await adminApi.setFeatures(member.id, { [featureId]: enabled }));
+  }, `${member.name}: fitur ${featureId} sekarang ${enabled ? 'aktif' : 'nonaktif'}.`), [replaceMember, runAction]);
+
+  const handleUpdateMembership = useCallback((member: User, type: MembershipType) => runAction(async () => {
+    replaceMember(await adminApi.setMembership(member.id, type));
+  }, `${member.name} sekarang ${MEMBERSHIP_LABELS[type]}.`), [replaceMember, runAction]);
+
+  // ── Aksi lapak ──
+  const replaceProduct = useCallback((updated: LapakProduct) => {
+    setProducts((list) => list.map((item) => (item.id === updated.id ? updated : item)));
+  }, []);
+
+  const handleApproveProduct = useCallback((id: string) => runAction(async () => {
+    replaceProduct(await adminApi.approveProduct(id));
+  }), [replaceProduct, runAction]);
+
+  const handleRejectProduct = useCallback((id: string) => {
+    const reject = (reason?: string) => runAction(async () => {
+      replaceProduct(await adminApi.rejectProduct(id, reason || undefined));
+    });
+    // Di Android & web, Alert.prompt disediakan AlertHost.
+    Alert.prompt('Tolak Produk', 'Alasan penolakan (opsional), mis. "Foto kurang jelas"', [
+      { text: 'Batal', style: 'cancel' },
+      { text: 'Tolak', style: 'destructive', onPress: (reason?: string) => reject(reason?.trim()) },
+    ]);
+  }, [replaceProduct, runAction]);
+
+  const handleDeleteProduct = useCallback((id: string) => runAction(async () => {
+    await adminApi.deleteProduct(id);
+    setProducts((list) => list.filter((item) => item.id !== id));
+  }), [runAction]);
+
+  // ── Aksi event ──
+  const replaceEvent = useCallback((updated: Event) => {
+    setEvents((list) => list.map((item) => (item.id === updated.id ? updated : item)));
+  }, []);
+
+  const handleEventStatus = useCallback((id: string, status: 'published' | 'cancelled') => runAction(async () => {
+    replaceEvent(await adminApi.setEventStatus(id, status));
+  }), [replaceEvent, runAction]);
+
+  const handleDeleteEvent = useCallback((id: string) => runAction(async () => {
+    await adminApi.deleteEvent(id);
+    setEvents((list) => list.filter((item) => item.id !== id));
+  }), [runAction]);
+
+  // ── Aksi registrasi ──
+  const handleRegistrationStatus = useCallback((id: string, status: 'confirmed' | 'cancelled') => runAction(async () => {
+    const updated = await adminApi.updateRegistration(id, { status });
+    setRegistrations((list) => status === 'cancelled'
+      ? list.filter((item) => item.id !== id)
+      : list.map((item) => (item.id === id ? { ...item, ...updated } : item)));
+  }), [runAction]);
+
+  // ── Aksi membership plan ──
+  const handleTogglePlanFeature = useCallback((type: MembershipType, featureId: string) => {
+    setPlans((list) => list.map((plan) => plan.type !== type ? plan : {
+      ...plan,
+      features: plan.features.map((feature) => feature.id === featureId ? { ...feature, enabled: !feature.enabled } : feature),
+    }));
+  }, []);
+
+  const handleSavePlan = useCallback((plan: MembershipPlan) => runAction(async () => {
+    const saved = await adminApi.saveMembershipPlan(plan.type, plan.features.map((feature) => ({ id: feature.id, enabled: feature.enabled })));
+    setPlans((list) => list.map((item) => (item.type === saved.type ? saved : item)));
+  }, `Plan ${plan.label} disimpan.`), [runAction]);
 
   const userStats = useMemo(() => ({
-    total: members.length,
-    admins: members.filter((m) => m.role === 'super_admin' || m.role === 'admin').length,
-    active: members.filter((m) => m.isActive).length,
-  }), [members]);
+    total: dashboard?.users.total ?? membersTotal,
+    admins: dashboard?.users.admins ?? members.filter((m) => isStaffRole(m.role)).length,
+    active: dashboard?.users.active ?? members.filter((m) => m.isActive).length,
+  }), [dashboard, members, membersTotal]);
 
-  const productStats = useMemo(() => ({
-    total: products.length,
-    pending: products.filter((p) => p.status === 'pending').length,
-    approved: products.filter((p) => p.status === 'approved').length,
-    rejected: products.filter((p) => p.status === 'rejected').length,
-  }), [products]);
-
-  const filteredMembers = useMemo(() => {
-    if (!search.trim()) return members;
-    const q = search.toLowerCase();
-    return members.filter((m) => m.name.toLowerCase().includes(q) || m.email.toLowerCase().includes(q));
-  }, [search, members]);
+  const productStats = useMemo(() => {
+    const pending = productCounts.pending ?? 0;
+    const approved = productCounts.approved ?? 0;
+    const rejected = productCounts.rejected ?? 0;
+    return { total: pending + approved + rejected, pending, approved, rejected };
+  }, [productCounts]);
 
   const filteredProducts = useMemo(() => {
-    let list = products;
-    if (lapakFilter !== 'semua') list = list.filter((p) => p.status === lapakFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter((p) => p.name.toLowerCase().includes(q) || p.sellerName.toLowerCase().includes(q));
-    }
-    return list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-  }, [products, lapakFilter, search]);
+    const list = lapakFilter === 'semua' ? products : products.filter((p) => p.status === lapakFilter);
+    return [...list].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+  }, [products, lapakFilter]);
 
   const eventStats = useMemo(() => ({
     total: events.length,
@@ -337,21 +521,22 @@ function AdminScreen() {
   }), [events]);
 
   const filteredEvents = useMemo(() => {
-    let list = events;
-    if (eventFilter !== 'semua') list = list.filter((e) => (e.status || 'published') === eventFilter);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter((e) => e.title.toLowerCase().includes(q) || e.type.toLowerCase().includes(q) || e.location.toLowerCase().includes(q));
-    }
-    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [events, eventFilter, search]);
+    const list = eventFilter === 'semua' ? events : events.filter((e) => (e.status || 'published') === eventFilter);
+    return [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [events, eventFilter]);
+
+  const registrationStats = useMemo(() => ({
+    total: registrations.length,
+    confirmed: registrations.filter((r) => r.status === 'confirmed').length,
+    registered: registrations.filter((r) => r.status === 'registered').length,
+  }), [registrations]);
 
   const tabs: { id: CmsTab; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; count: number }[] = [
     { id: 'users', label: 'Users', icon: 'people', count: userStats.total },
-    { id: 'lapak', label: 'Lapak', icon: 'storefront', count: productStats.total },
-    { id: 'events', label: 'Events', icon: 'calendar', count: eventStats.total },
-    { id: 'registrations', label: 'Daftar', icon: 'clipboard', count: eventRegistrations.filter((r) => r.status !== 'cancelled').length },
-    { id: 'membership', label: 'Member', icon: 'shield-checkmark', count: membershipPlans.length },
+    { id: 'lapak', label: 'Lapak', icon: 'storefront', count: dashboard?.lapak.pending ?? productStats.pending },
+    { id: 'events', label: 'Events', icon: 'calendar', count: dashboard?.events.upcoming ?? eventStats.published },
+    { id: 'registrations', label: 'Daftar', icon: 'clipboard', count: dashboard?.registrations.pending ?? registrationStats.registered },
+    { id: 'membership', label: 'Member', icon: 'shield-checkmark', count: plans.length || 3 },
   ];
 
   const lapakFilters: { id: LapakFilter; label: string; count: number }[] = [
@@ -360,6 +545,12 @@ function AdminScreen() {
     { id: 'approved', label: 'Approved', count: productStats.approved },
     { id: 'rejected', label: 'Rejected', count: productStats.rejected },
   ];
+
+  const refreshControl = <RefreshControl refreshing={refreshing} onRefresh={() => reload('refresh')} tintColor={colors.primary} />;
+  const searchPlaceholder = activeTab === 'users' ? 'Cari nama, email, HP...'
+    : activeTab === 'lapak' ? 'Cari produk/penjual...'
+      : activeTab === 'events' ? 'Cari judul/lokasi event...'
+        : activeTab === 'registrations' ? 'Cari nama/email/HP pendaftar...' : 'Cari...';
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -370,15 +561,17 @@ function AdminScreen() {
         </Pressable>
         <View style={{ flex: 1, alignItems: 'center' }}>
           <Text style={styles.headerTitle}>CMS Admin Panel</Text>
-          <Text style={styles.headerSub}>Kelola Users & Lapak NASUHA Jakarta</Text>
+          <Text style={styles.headerSub}>{ROLE_LABELS[user.role]} · NASUHA</Text>
         </View>
-        <Ionicons name="settings-outline" size={24} color="#FFF" />
+        <Pressable onPress={() => reload('refresh')} hitSlop={12}>
+          <Ionicons name="refresh" size={24} color="#FFF" />
+        </Pressable>
       </LinearGradient>
 
       {/* Stats */}
       <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.md]}>
         <ShimmerGold style={styles.shimmer} />
-        {activeTab === 'users' ? (
+        {activeTab === 'users' || activeTab === 'membership' ? (
           <View style={styles.statsGrid}>
             <View style={styles.statItem}><Text style={[styles.statVal, { color: colors.primary }]}>{userStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total User</Text></View>
             <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FF6B6B' }]}>{userStats.admins}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Admin</Text></View>
@@ -400,10 +593,9 @@ function AdminScreen() {
           </View>
         ) : (
           <View style={styles.statsGrid}>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: colors.primary }]}>{eventRegistrations.length}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#2EC4B6' }]}>{eventRegistrations.filter((r) => r.status === 'confirmed').length}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Konfirmasi</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FFB347' }]}>{eventRegistrations.filter((r) => r.status === 'registered').length}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pending</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FF6B6B' }]}>{eventRegistrations.filter((r) => r.status === 'cancelled').length}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Batal</Text></View>
+            <View style={styles.statItem}><Text style={[styles.statVal, { color: colors.primary }]}>{registrationStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Aktif</Text></View>
+            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#2EC4B6' }]}>{registrationStats.confirmed}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Konfirmasi</Text></View>
+            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FFB347' }]}>{registrationStats.registered}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pending</Text></View>
           </View>
         )}
       </View>
@@ -411,7 +603,7 @@ function AdminScreen() {
       {/* Tabs */}
       <View style={styles.tabGrid}>
         {tabs.map((t) => (
-          <Pressable key={t.id} onPress={() => { setActiveTab(t.id); setSearch(''); }} style={[styles.tab, { backgroundColor: activeTab === t.id ? colors.primary + '12' : colors.surface, borderColor: activeTab === t.id ? colors.primary : colors.border }]}>
+          <Pressable key={t.id} onPress={() => { setActiveTab(t.id); setSearch(''); setDebouncedSearch(''); }} style={[styles.tab, { backgroundColor: activeTab === t.id ? colors.primary + '12' : colors.surface, borderColor: activeTab === t.id ? colors.primary : colors.border }]}>
             <Ionicons name={t.icon as any} size={18} color={activeTab === t.id ? colors.primary : colors.textMuted} />
             <Text style={[styles.tabLabel, { color: activeTab === t.id ? colors.primary : colors.textMuted }]} numberOfLines={1}>{t.label}</Text>
             <View style={[styles.tabCount, { backgroundColor: activeTab === t.id ? colors.primary : colors.textMuted + '30' }]}>
@@ -422,23 +614,27 @@ function AdminScreen() {
       </View>
 
       {/* Search */}
-      <View style={{ paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm }}>
-        <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <Ionicons name="search-outline" size={18} color={colors.textMuted} />
-          <TextInput
-            style={[styles.searchInput, { color: colors.text }]}
-            placeholder={activeTab === 'users' ? 'Cari user...' : 'Cari produk/penjual...'}
-            placeholderTextColor={colors.textMuted}
-            value={search}
-            onChangeText={setSearch}
-          />
-          {search.length > 0 && <Pressable onPress={() => setSearch('')}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></Pressable>}
+      {activeTab !== 'membership' && (
+        <View style={{ paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm }}>
+          <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <Ionicons name="search-outline" size={18} color={colors.textMuted} />
+            <TextInput
+              style={[styles.searchInput, { color: colors.text }]}
+              placeholder={searchPlaceholder}
+              placeholderTextColor={colors.textMuted}
+              value={search}
+              onChangeText={setSearch}
+              autoCapitalize="none"
+            />
+            {loading ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+            {search.length > 0 && <Pressable onPress={() => setSearch('')}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></Pressable>}
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Lapak Filters */}
       {activeTab === 'lapak' && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
           {lapakFilters.map((f) => (
             <Pressable key={f.id} onPress={() => setLapakFilter(f.id)}
               style={[styles.filterChip, { backgroundColor: lapakFilter === f.id ? colors.primary : colors.surface, borderColor: lapakFilter === f.id ? colors.primary : colors.border }]}>
@@ -451,7 +647,7 @@ function AdminScreen() {
       {/* Event Filters */}
       {activeTab === 'events' && (
         <View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
             {([{ id: 'semua' as EventFilter, label: 'Semua', count: eventStats.total }, { id: 'published' as EventFilter, label: 'Published', count: eventStats.published }, { id: 'draft' as EventFilter, label: 'Draft', count: eventStats.draft }, { id: 'cancelled' as EventFilter, label: 'Dibatalkan', count: eventStats.cancelled }]).map((f) => (
               <Pressable key={f.id} onPress={() => setEventFilter(f.id)}
                 style={[styles.filterChip, { backgroundColor: eventFilter === f.id ? colors.primary : colors.surface, borderColor: eventFilter === f.id ? colors.primary : colors.border }]}>
@@ -471,15 +667,16 @@ function AdminScreen() {
       {/* Content */}
       {activeTab === 'users' ? (
         <FlatList
-          data={filteredMembers}
+          data={members}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
-            <MemberCard item={item} isCurrentUser={item.id === user.id} currentUserRole={user.role} colors={colors} membershipPlans={membershipPlans}
-              onChangeRole={updateMemberRole} onToggleActive={toggleMemberActive} onRemove={removeMember} onToggleFeature={handleToggleMemberFeature} />
+            <MemberCard item={item} isCurrentUser={item.id === user.id} currentUserRole={user.role} colors={colors} membershipPlans={plans.length ? plans : fallbackPlans}
+              onChangeRole={handleChangeRole} onToggleActive={handleToggleActive} onRemove={handleRemoveMember} onToggleFeature={handleToggleMemberFeature} />
           )}
           contentContainerStyle={styles.list}
+          refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={<View style={styles.empty}><Ionicons name="people-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>Belum ada user</Text></View>}
+          ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="people-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{debouncedSearch ? 'User tidak ditemukan' : 'Belum ada user'}</Text></View>}
         />
       ) : activeTab === 'lapak' ? (
         <FlatList
@@ -487,37 +684,41 @@ function AdminScreen() {
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <ProductModCard item={item} colors={colors}
-              onApprove={approveProduct} onReject={rejectProduct} onDelete={deleteProduct} />
+              onApprove={handleApproveProduct} onReject={handleRejectProduct} onDelete={handleDeleteProduct} />
           )}
           contentContainerStyle={styles.list}
+          refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={<View style={styles.empty}><Ionicons name="bag-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{lapakFilter === 'semua' ? 'Belum ada dagangan' : `Tidak ada dagangan ${STATUS_LABELS[lapakFilter as LapakProduct['status']] || ''}`}</Text></View>}
+          ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="bag-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{lapakFilter === 'semua' ? 'Belum ada dagangan' : `Tidak ada dagangan ${STATUS_LABELS[lapakFilter as LapakProduct['status']] || ''}`}</Text></View>}
         />
       ) : activeTab === 'events' ? (
         <FlatList
           data={filteredEvents}
-          keyExtractor={(item) => String(item.id)}
+          keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <EventModCard item={item} colors={colors}
               onEdit={(id) => router.push(`/event/edit/${id}` as any)}
-              onPublish={(id) => updateEvent(id, { status: 'published' })}
-              onCancel={(id) => Alert.alert('Batalkan Event', `Batalkan "${item.title}"?`, [
+              onPublish={(id) => handleEventStatus(id, 'published')}
+              onCancel={(id) => Alert.alert('Batalkan Event', `Batalkan "${item.title}"? Pendaftar akan diberi notifikasi.`, [
                 { text: 'Tidak', style: 'cancel' },
-                { text: 'Batalkan', style: 'destructive', onPress: () => updateEvent(id, { status: 'cancelled' }) },
+                { text: 'Batalkan', style: 'destructive', onPress: () => handleEventStatus(id, 'cancelled') },
               ])}
-              onDelete={(id) => deleteEvent(id)} />
+              onDelete={handleDeleteEvent} />
           )}
           contentContainerStyle={styles.list}
+          refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={<View style={styles.empty}><Ionicons name="calendar-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>Belum ada event. Tambah event baru!</Text></View>}
+          ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="calendar-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>Belum ada event. Tambah event baru!</Text></View>}
         />
       ) : activeTab === 'membership' ? (
-        <MembershipPanel plans={membershipPlans} members={members} colors={colors} onUpdateMember={updateUserMembership} onUpdatePlan={updateMembershipPlan} />
+        <MembershipPanel plans={plans} members={members} colors={colors} canEditPlans={isSuperAdmin}
+          onUpdateMember={handleUpdateMembership} onTogglePlanFeature={handleTogglePlanFeature} onSavePlan={handleSavePlan} />
       ) : (
         <FlatList
-          data={eventRegistrations.filter((r) => r.status !== 'cancelled').sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())}
+          data={registrations}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.list}
+          refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
           renderItem={({ item: reg }) => (
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
@@ -529,8 +730,8 @@ function AdminScreen() {
                   <Text style={[styles.cardName, { color: colors.text }]}>{reg.userName}</Text>
                   <Text style={[styles.cardSub, { color: colors.textSecondary }]}>{reg.userEmail}</Text>
                   <Text style={[styles.cardMeta, { color: colors.textMuted }]}>{reg.userPhone}{reg.korda ? ` · ${reg.korda}` : ''}</Text>
-                  {reg.userCity && <Text style={[styles.cardMeta, { color: colors.textMuted }]}>{reg.userCity}</Text>}
-                  {reg.notes && <Text style={[styles.cardMeta, { color: colors.textMuted, fontStyle: 'italic' }]}>"{reg.notes}"</Text>}
+                  {reg.userCity ? <Text style={[styles.cardMeta, { color: colors.textMuted }]}>{reg.userCity}</Text> : null}
+                  {reg.notes ? <Text style={[styles.cardMeta, { color: colors.textMuted, fontStyle: 'italic' }]}>&quot;{reg.notes}&quot;</Text> : null}
                 </View>
               </View>
               <View style={styles.actionRow}>
@@ -538,16 +739,18 @@ function AdminScreen() {
                   <View style={[styles.dot, { backgroundColor: reg.status === 'confirmed' ? '#2EC4B6' : '#FFB347' }]} />
                   <Text style={[styles.badgeText, { color: reg.status === 'confirmed' ? '#2EC4B6' : '#FFB347' }]}>{reg.status === 'confirmed' ? 'Dikonfirmasi' : 'Terdaftar'}</Text>
                 </View>
-                <Text style={[styles.dateText, { color: colors.textMuted }]}>Event #{reg.eventId} · {new Date(reg.createdAt).toLocaleDateString('id-ID')}</Text>
+                <Text style={[styles.dateText, { color: colors.textMuted }]} numberOfLines={1}>
+                  {reg.event?.title || 'Event'} · {new Date(reg.createdAt).toLocaleDateString('id-ID')}
+                </Text>
                 <View style={styles.btnRow}>
                   {reg.status !== 'confirmed' && (
-                    <Pressable onPress={() => confirmRegistration(reg.id)} style={[styles.iconBtn, { backgroundColor: '#2EC4B620' }]}>
+                    <Pressable onPress={() => handleRegistrationStatus(reg.id, 'confirmed')} style={[styles.iconBtn, { backgroundColor: '#2EC4B620' }]}>
                       <Ionicons name="checkmark" size={16} color="#2EC4B6" />
                     </Pressable>
                   )}
                   <Pressable onPress={() => Alert.alert('Batalkan', `Batalkan pendaftaran ${reg.userName}?`, [
                     { text: 'Tidak', style: 'cancel' },
-                    { text: 'Batalkan', style: 'destructive', onPress: () => cancelRegistration(reg.id) },
+                    { text: 'Batalkan', style: 'destructive', onPress: () => handleRegistrationStatus(reg.id, 'cancelled') },
                   ])} style={[styles.iconBtn, { backgroundColor: '#FF6B6B20' }]}>
                     <Ionicons name="close" size={16} color="#FF6B6B" />
                   </Pressable>
@@ -555,7 +758,7 @@ function AdminScreen() {
               </View>
             </View>
           )}
-          ListEmptyComponent={<View style={styles.empty}><Ionicons name="clipboard-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>Belum ada pendaftaran event</Text></View>}
+          ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="clipboard-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>Belum ada pendaftaran event</Text></View>}
         />
       )}
     </View>
@@ -582,6 +785,8 @@ const styles = StyleSheet.create({
   tabCountText: { fontSize: FontSize.xs, fontWeight: '700' },
   searchBox: { flexDirection: 'row', alignItems: 'center', borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md, height: 44, borderWidth: 1, gap: 8 },
   searchInput: { flex: 1, fontSize: FontSize.md, height: 44 },
+  // Tanpa ini ScrollView horizontal ikut menyusut di layout kolom Android dan chip terpotong.
+  filterScroll: { flexGrow: 0, flexShrink: 0 },
   filterRow: { paddingHorizontal: Spacing.lg, gap: Spacing.sm, paddingBottom: Spacing.xs },
   filterChip: { paddingHorizontal: 14, paddingVertical: 8, borderRadius: BorderRadius.full, borderWidth: 1 },
   filterText: { fontSize: FontSize.sm, fontWeight: '600' },

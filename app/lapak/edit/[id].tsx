@@ -1,6 +1,6 @@
-import React, { memo, useState, useCallback, useMemo } from 'react';
+import React, { memo, useState, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TextInput, Pressable, ScrollView, Alert, Image,
+  ActivityIndicator, View, Text, StyleSheet, TextInput, Pressable, ScrollView, Alert, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -8,6 +8,10 @@ import { useLocalSearchParams, router } from 'expo-router';
 import { useAppStore } from '../../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize } from '../../../constants/theme';
 import { LAPAK_CATEGORIES } from '../../../constants/data';
+import { useApiQuery } from '../../../hooks/useApiQuery';
+import { errorMessage } from '../../../services/api';
+import { lapakApi, uploadApi } from '../../../services/nasjakApi';
+import type { LapakProduct } from '../../../types';
 
 const CONDITIONS = ['Baru', 'Bekas'] as const;
 const MAX_PHOTOS = 5;
@@ -16,11 +20,28 @@ function EditProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
-  const products = useAppStore((s) => s.products);
-  const updateProduct = useAppStore((s) => s.updateProduct);
   const colors = Colors[theme];
+  const { data: product, loading, error } = useApiQuery(() => lapakApi.detail(String(id)), [id, user?.id]);
 
-  const product = useMemo(() => products.find((p) => p.id === id), [products, id]);
+  if (!product) return (
+    <View style={[styles.center, { backgroundColor: colors.background }]}>
+      {loading ? <ActivityIndicator color={colors.primary} /> : (
+        <>
+          <Text style={[styles.errorText, { color: colors.text }]}>{error || 'Produk tidak ditemukan'}</Text>
+          <Pressable onPress={() => router.back()}><Text style={{ color: colors.primary }}>Kembali</Text></Pressable>
+        </>
+      )}
+    </View>
+  );
+
+  return <EditProductForm key={product.id} product={product} />;
+}
+
+function EditProductForm({ product }: { product: LapakProduct }) {
+  const theme = useAppStore((s) => s.theme);
+  const user = useAppStore((s) => s.user);
+  const references = useAppStore((s) => s.references);
+  const colors = Colors[theme];
 
   const [name, setName] = useState(product?.name || '');
   const [category, setCategory] = useState(product?.category || '');
@@ -38,7 +59,8 @@ function EditProductScreen() {
   const [saving, setSaving] = useState(false);
   const [showCategory, setShowCategory] = useState(false);
 
-  const canEdit = user && product && (user.id === product.sellerId || user.role === 'super_admin' || user.role === 'admin');
+  // Edit dari app hanya untuk pemilik; admin memoderasi lewat panel admin.
+  const canEdit = Boolean(user && user.id === product.sellerId);
 
   const pickPhoto = useCallback(async () => {
     if (photos.length >= MAX_PHOTOS) { Alert.alert('Maksimal', `Maksimal ${MAX_PHOTOS} foto`); return; }
@@ -55,25 +77,45 @@ function EditProductScreen() {
       Alert.alert('Error', 'Lengkapi semua field wajib (nama, kategori, harga, foto)');
       return;
     }
+    if (!description.trim()) { Alert.alert('Error', 'Deskripsi produk harus diisi'); return; }
+    if (!whatsapp.trim()) { Alert.alert('Error', 'Nomor WhatsApp harus diisi'); return; }
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
-    updateProduct(id!, {
-      name: name.trim(), category, description: description.trim(),
-      price: Number(price), photos, sellerWhatsapp: whatsapp.trim(),
-      specs: { weight: weight.trim() || undefined, condition, stock: stock ? Number(stock) : undefined, minOrder: minOrder ? Number(minOrder) : 1, variant: variant.trim() || undefined, shippingFrom: shippingFrom.trim() || undefined },
-      tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
-      status: 'pending',
-    });
-    setSaving(false);
-    Alert.alert('Berhasil', 'Dagangan diperbarui. Menunggu review admin.', [{ text: 'OK', onPress: () => router.back() }]);
-  }, [id, name, category, price, description, photos, whatsapp, weight, condition, stock, minOrder, variant, shippingFrom, tags, updateProduct]);
+    try {
+      const uploaded: string[] = [];
+      for (const uri of photos) {
+        uploaded.push(/^https?:\/\//.test(uri) ? uri : (await uploadApi.image(uri, 'product')).url);
+      }
+      await lapakApi.update(product.id, {
+        name: name.trim(), category, description: description.trim(),
+        price: Number(price), photos: uploaded, sellerWhatsapp: whatsapp.trim(),
+        specs: { weight: weight.trim() || undefined, condition, stock: stock ? Number(stock) : undefined, minOrder: minOrder ? Number(minOrder) : 1, variant: variant.trim() || undefined, shippingFrom: shippingFrom.trim() || undefined },
+        tags: tags.split(',').map((t) => t.trim()).filter(Boolean),
+      });
+      Alert.alert('Berhasil', 'Dagangan diperbarui dan kembali menunggu review admin sebelum tampil lagi.', [{ text: 'OK', onPress: () => router.back() }]);
+    } catch (caught) {
+      Alert.alert('Gagal Menyimpan', errorMessage(caught));
+    } finally {
+      setSaving(false);
+    }
+  }, [product.id, name, category, price, description, photos, whatsapp, weight, condition, stock, minOrder, variant, shippingFrom, tags]);
 
-  if (!product) return (
-    <View style={[styles.center, { backgroundColor: colors.background }]}>
-      <Text style={[styles.errorText, { color: colors.text }]}>Produk tidak ditemukan</Text>
-      <Pressable onPress={() => router.back()}><Text style={{ color: colors.primary }}>Kembali</Text></Pressable>
-    </View>
-  );
+  const handleDelete = useCallback(() => {
+    Alert.alert('Hapus Produk', `Yakin ingin menghapus "${product.name}"? Tindakan ini tidak bisa dibatalkan.`, [
+      { text: 'Batal', style: 'cancel' },
+      {
+        text: 'Hapus',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await lapakApi.remove(product.id);
+            Alert.alert('Terhapus', 'Produk telah dihapus.', [{ text: 'OK', onPress: () => router.replace('/lapak/?mine=1' as any) }]);
+          } catch (caught) {
+            Alert.alert('Gagal Menghapus', errorMessage(caught));
+          }
+        },
+      },
+    ]);
+  }, [product]);
 
   if (!canEdit) return (
     <View style={[styles.center, { backgroundColor: colors.background }]}>
@@ -83,7 +125,9 @@ function EditProductScreen() {
     </View>
   );
 
-  const categories = LAPAK_CATEGORIES.filter((c) => c.id !== 'semua');
+  const categories = references?.lapakCategories?.length
+    ? references.lapakCategories.map((c) => ({ id: c.id, label: c.label }))
+    : LAPAK_CATEGORIES.filter((c) => c.id !== 'semua');
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -162,6 +206,11 @@ function EditProductScreen() {
         <Text style={[styles.sectionLabel, { color: colors.gold }]}>KONTAK</Text>
         <Field label="WhatsApp *" value={whatsapp} onChangeText={setWhatsapp} colors={colors} keyboardType="phone-pad" />
         <Field label="Tags" value={tags} onChangeText={setTags} colors={colors} />
+
+        <Pressable onPress={handleDelete} style={[styles.deleteBtn, { borderColor: colors.error }]}>
+          <Ionicons name="trash-outline" size={18} color={colors.error} />
+          <Text style={[styles.deleteText, { color: colors.error }]}>Hapus produk</Text>
+        </Pressable>
         <View style={{ height: 40 }} />
       </ScrollView>
     </View>
@@ -178,6 +227,7 @@ const Field = memo(({ label, value, onChangeText, colors, keyboardType }: {
     </View>
   </View>
 ));
+Field.displayName = 'Field';
 
 export default memo(EditProductScreen);
 
@@ -206,4 +256,6 @@ const styles = StyleSheet.create({
   row2: { flexDirection: 'row', gap: Spacing.md },
   condRow: { flexDirection: 'row', gap: Spacing.sm },
   condChip: { flex: 1, alignItems: 'center', paddingVertical: 12, borderRadius: BorderRadius.md, borderWidth: 1 },
+  deleteBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: Spacing.xl, paddingVertical: 12, borderRadius: BorderRadius.md, borderWidth: 1 },
+  deleteText: { fontSize: FontSize.md, fontWeight: '700' },
 });

@@ -1,15 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Clipboard from 'expo-clipboard';
 import { router } from 'expo-router';
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Alert, Pressable, ScrollView, Share, StyleSheet, Text, View } from 'react-native';
-import { DOAS as COMPLETE_DOAS, type DoaEntry } from '../../constants/doa';
+import { DOAS as COMPLETE_DOAS } from '../../constants/doa';
 import { BorderRadius, Colors, FontSize, Spacing } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
+import type { Doa } from '../../types';
+
+// Pustaka doa bawaan app, dipakai bila server belum terjangkau.
+const FALLBACK_DOAS: Doa[] = COMPLETE_DOAS.map((doa) => ({ ...doa, id: String(doa.id) }));
 
 function DoaScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
+  const { data } = useApiQuery(() => contentApi.doas(), [], { cacheKey: 'doas', fallback: FALLBACK_DOAS });
+  const doas = data?.length ? data : FALLBACK_DOAS;
+  const debtDoas = useMemo(() => doas.filter((item) => item.debt), [doas]);
+  const dailyDoas = useMemo(() => doas.filter((item) => !item.debt), [doas]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -33,14 +43,14 @@ function DoaScreen() {
         </View>
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Doa terkait utang</Text>
-        <Text style={[styles.countText, { color: colors.textMuted }]}>{COMPLETE_DOAS.length} doa tersusun dalam pustaka tematik</Text>
-        {COMPLETE_DOAS.filter((item) => item.debt).map((item) => (
-          <DoaCard key={item.id} item={item} colors={colors} />
+        <Text style={[styles.countText, { color: colors.textMuted }]}>{debtDoas.length} doa terkait utang dari {doas.length} doa dalam pustaka tematik</Text>
+        {debtDoas.map((item, index) => (
+          <DoaCard key={item.id} item={item} number={index + 1} colors={colors} />
         ))}
 
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Doa harian</Text>
-        {COMPLETE_DOAS.filter((item) => !item.debt).map((item) => (
-          <DoaCard key={item.id} item={item} colors={colors} />
+        {dailyDoas.map((item, index) => (
+          <DoaCard key={item.id} item={item} number={debtDoas.length + index + 1} colors={colors} />
         ))}
 
         <View style={{ height: 24 }} />
@@ -49,7 +59,7 @@ function DoaScreen() {
   );
 }
 
-function DoaCard({ item, colors }: { item: DoaEntry; colors: typeof Colors.light }) {
+function DoaCard({ item, number, colors }: { item: Doa; number: number; colors: typeof Colors.light }) {
   const handleCopy = async () => {
     const text = [
       item.title,
@@ -87,7 +97,7 @@ function DoaCard({ item, colors }: { item: DoaEntry; colors: typeof Colors.light
     <View style={[styles.card, { backgroundColor: colors.card, borderColor: item.debt ? colors.gold : colors.border }]}>
       <View style={styles.cardHeader}>
         <View style={[styles.number, { backgroundColor: item.debt ? colors.gold : colors.primary }]}>
-          <Text style={styles.numberText}>{item.id}</Text>
+          <Text style={styles.numberText}>{number}</Text>
         </View>
 
         <View style={[styles.icon, { backgroundColor: item.debt ? colors.gold + '20' : colors.primary + '15' }]}>

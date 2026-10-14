@@ -1,5 +1,6 @@
-import React, { memo, useCallback, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   StyleSheet,
@@ -9,27 +10,30 @@ import {
   TextInput,
   Alert,
   KeyboardAvoidingView,
-  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
-import { SAMPLE_EVENTS, NASUHA_KORDA } from '../../constants/data';
+import { NASUHA_KORDA } from '../../constants/data';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { ApiError, errorMessage } from '../../services/api';
+import { eventApi } from '../../services/nasjakApi';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 function EventDetailScreen() {
   const { id, register } = useLocalSearchParams<{ id: string; register?: string }>();
   const theme = useAppStore((s) => s.theme);
   const user = useAppStore((s) => s.user);
-  const eventRegistrations = useAppStore((s) => s.eventRegistrations);
-  const registerEvent = useAppStore((s) => s.registerEvent);
-  const cancelRegistration = useAppStore((s) => s.cancelRegistration);
+  const references = useAppStore((s) => s.references);
+  const isStaff = useAppStore((s) => s.isStaff);
+  const hasFeature = useAppStore((s) => s.hasFeature);
   const colors = Colors[theme];
   const insets = useSafeAreaInsets();
 
-  const [showForm, setShowForm] = useState(register === '1');
+  const [showForm, setShowForm] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [formName, setFormName] = useState(user?.name || '');
   const [formEmail, setFormEmail] = useState(user?.email || '');
   const [formPhone, setFormPhone] = useState(user?.phone || '');
@@ -37,67 +41,118 @@ function EventDetailScreen() {
   const [formKorda, setFormKorda] = useState('');
   const [formNotes, setFormNotes] = useState('');
 
-  const eventId = Number(id);
+  const eventId = String(id);
+  const { data: event, setData: setEvent, loading, error, reload } = useApiQuery(
+    () => eventApi.detail(eventId),
+    [eventId, user?.id],
+  );
 
-  const event = useMemo(() => {
-    const storeEvents = useAppStore.getState().events;
-    return storeEvents.find((e) => e.id === eventId) || SAMPLE_EVENTS.find((e) => e.id === eventId);
-  }, [eventId]);
+  const kordaOptions = useMemo(
+    () => references?.kordas?.length
+      ? references.kordas.map((k) => ({ id: k.id, label: k.label }))
+      : NASUHA_KORDA.map((label) => ({ id: label, label })),
+    [references],
+  );
 
-  const myRegistration = useMemo(() => {
-    if (!user) return null;
-    return eventRegistrations.find((r) => r.eventId === eventId && r.userId === user.id && r.status !== 'cancelled');
-  }, [eventRegistrations, eventId, user]);
-
-  const eventRegs = useMemo(() => {
-    return eventRegistrations.filter((r) => r.eventId === eventId && r.status !== 'cancelled');
-  }, [eventRegistrations, eventId]);
+  const myRegistration = event?.myRegistration || null;
 
   const openForm = useCallback(() => {
-    setFormName(user?.name || '');
-    setFormEmail(user?.email || '');
-    setFormPhone(user?.phone || '');
-    setFormCity(user?.city || '');
-    setFormKorda('');
+    if (!user) {
+      Alert.alert('Login Diperlukan', 'Silakan login terlebih dahulu untuk mendaftar event.', [
+        { text: 'Nanti', style: 'cancel' },
+        { text: 'Login', onPress: () => router.push('/(auth)/login' as any) },
+      ]);
+      return;
+    }
+    if (!hasFeature('event')) {
+      Alert.alert(
+        'Fitur Khusus Member',
+        'Fitur ini khusus member. Pendaftaran event tersedia untuk paket Membership dan Sahabat NASUHA. Hubungi admin atau korda Anda untuk upgrade membership.',
+      );
+      return;
+    }
+    setFormName(user.name || '');
+    setFormEmail(user.email || '');
+    setFormPhone(user.phone || '');
+    setFormCity(user.city || '');
+    setFormKorda(user.nasuhaRegion || '');
     setFormNotes('');
     setShowForm(true);
-  }, [user]);
+  }, [user, hasFeature]);
+
+  const autoOpened = useRef(false);
+  useEffect(() => {
+    if (register === '1' && event && !event.myRegistration && !event.isFull && !autoOpened.current) {
+      autoOpened.current = true;
+      openForm();
+    }
+  }, [register, event, openForm]);
 
   if (!event) {
     return (
       <View style={[styles.empty, { backgroundColor: colors.background }]}>
-        <Text style={{ color: colors.textSecondary }}>Event tidak ditemukan</Text>
+        {loading ? (
+          <ActivityIndicator color={colors.primary} />
+        ) : (
+          <>
+            <Text style={{ color: colors.textSecondary }}>{error || 'Event tidak ditemukan'}</Text>
+            <Pressable onPress={() => router.back()} style={{ marginTop: Spacing.md }}>
+              <Text style={{ color: colors.primary, fontWeight: '700' }}>Kembali</Text>
+            </Pressable>
+          </>
+        )}
       </View>
     );
   }
 
-  const totalRegistered = event.registered + eventRegs.length;
+  const totalRegistered = event.registered;
   const pct = event.quota > 0 ? Math.round((totalRegistered / event.quota) * 100) : 0;
-  const isFull = totalRegistered >= event.quota;
+  const isFull = event.isFull ?? totalRegistered >= event.quota;
+  const isClosed = event.status !== undefined && event.status !== 'published';
 
-  const handleRegister = () => {
+  const handleRegister = async () => {
     if (!formName.trim()) return Alert.alert('Error', 'Nama lengkap harus diisi');
     if (!formEmail.trim()) return Alert.alert('Error', 'Email harus diisi');
     if (!formPhone.trim()) return Alert.alert('Error', 'Nomor HP/WhatsApp harus diisi');
     if (!user) return Alert.alert('Error', 'Silakan login terlebih dahulu');
+    if (submitting) return;
 
-    registerEvent({
-      eventId,
-      userId: user.id,
-      userName: formName.trim(),
-      userEmail: formEmail.trim(),
-      userPhone: formPhone.trim(),
-      userCity: formCity.trim() || undefined,
-      korda: formKorda || undefined,
-      notes: formNotes.trim() || undefined,
-    });
-
-    setShowForm(false);
-    Alert.alert(
-      'Pendaftaran Berhasil!',
-      `Anda telah terdaftar di ${event.title}.\n\nDetail pendaftaran:\nNama: ${formName}\nEmail: ${formEmail}\nHP: ${formPhone}\n\nSampai jumpa di acara!`,
-      [{ text: 'OK' }],
-    );
+    setSubmitting(true);
+    try {
+      const registration = await eventApi.register(eventId, {
+        name: formName.trim(),
+        email: formEmail.trim(),
+        phone: formPhone.trim(),
+        city: formCity.trim() || undefined,
+        korda: formKorda || undefined,
+        notes: formNotes.trim() || undefined,
+      });
+      setShowForm(false);
+      setEvent({
+        ...event,
+        registered: event.registered + 1,
+        myRegistration: { id: registration.id, status: registration.status === 'confirmed' ? 'confirmed' : 'registered' },
+      });
+      reload();
+      Alert.alert(
+        'Pendaftaran Berhasil!',
+        `Anda telah terdaftar di ${event.title}.\n\nDetail pendaftaran:\nNama: ${formName}\nEmail: ${formEmail}\nHP: ${formPhone}\n\nSampai jumpa di acara!`,
+        [{ text: 'OK' }],
+      );
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.isFeatureLocked) {
+        setShowForm(false);
+        Alert.alert(
+          'Fitur Khusus Member',
+          'Fitur ini khusus member. Pendaftaran event tersedia untuk paket Membership dan Sahabat NASUHA. Hubungi admin atau korda Anda untuk upgrade membership.',
+        );
+      } else {
+        Alert.alert('Gagal Mendaftar', errorMessage(caught));
+        if (caught instanceof ApiError && (caught.status === 409 || caught.status === 400)) reload();
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleCancel = () => {
@@ -107,9 +162,15 @@ function EventDetailScreen() {
       {
         text: 'Batalkan',
         style: 'destructive',
-        onPress: () => {
-          cancelRegistration(myRegistration.id);
-          Alert.alert('Dibatalkan', 'Pendaftaran Anda telah dibatalkan.');
+        onPress: async () => {
+          try {
+            await eventApi.cancelRegistration(myRegistration.id);
+            setEvent({ ...event, registered: Math.max(0, event.registered - 1), myRegistration: null });
+            reload();
+            Alert.alert('Dibatalkan', 'Pendaftaran Anda telah dibatalkan.');
+          } catch (caught) {
+            Alert.alert('Gagal', errorMessage(caught));
+          }
         },
       },
     ]);
@@ -120,9 +181,17 @@ function EventDetailScreen() {
       <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
         {/* Header */}
           <LinearGradient colors={['#00B4D8', '#0077B6']} style={[styles.hero, { paddingTop: insets.top + Spacing.md }]}>
-          <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={24} color="#FFF" />
-          </Pressable>
+          <View style={styles.heroTop}>
+            <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backBtn}>
+              <Ionicons name="arrow-back" size={24} color="#FFF" />
+            </Pressable>
+            {isStaff() && (
+              <Pressable onPress={() => router.push(`/event/edit/${event.id}` as any)} hitSlop={12} style={styles.editBtn}>
+                <Ionicons name="create-outline" size={18} color="#FFF" />
+                <Text style={styles.editBtnText}>Edit</Text>
+              </Pressable>
+            )}
+          </View>
           <View style={styles.typeBadge}>
             <Text style={styles.typeBadgeText}>{event.type}</Text>
           </View>
@@ -164,6 +233,14 @@ function EventDetailScreen() {
           <Text style={[styles.quotaText, { color: colors.textSecondary }]}>
             {totalRegistered} dari {event.quota} peserta terdaftar
           </Text>
+          {isClosed && (
+            <View style={[styles.fullBadge, { backgroundColor: colors.error + '15' }]}>
+              <Ionicons name="alert-circle" size={14} color={colors.error} />
+              <Text style={[styles.fullText, { color: colors.error }]}>
+                {event.status === 'cancelled' ? 'Event dibatalkan' : 'Event belum diterbitkan'}
+              </Text>
+            </View>
+          )}
           {isFull && (
             <View style={[styles.fullBadge, { backgroundColor: colors.error + '15' }]}>
               <Ionicons name="alert-circle" size={14} color={colors.error} />
@@ -180,7 +257,7 @@ function EventDetailScreen() {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.regStatusTitle, { color: colors.success }]}>Anda Sudah Terdaftar</Text>
                 <Text style={[styles.regStatusSub, { color: colors.textSecondary }]}>
-                  Status: {myRegistration.status === 'confirmed' ? 'Dikonfirmasi' : 'Terdaftar'} | {new Date(myRegistration.createdAt).toLocaleDateString('id-ID')}
+                  Status: {myRegistration.status === 'confirmed' ? 'Dikonfirmasi' : 'Terdaftar (menunggu konfirmasi)'}
                 </Text>
               </View>
             </View>
@@ -192,7 +269,7 @@ function EventDetailScreen() {
         )}
 
         {/* CTA */}
-        {!myRegistration && (
+        {!myRegistration && !isClosed && (
           <Pressable onPress={isFull ? undefined : openForm} style={({ pressed }) => [{ opacity: pressed && !isFull ? 0.9 : 1 }]}>
             <LinearGradient
               colors={isFull ? ['#999', '#777'] : [colors.primary, '#0077B6']}
@@ -211,7 +288,7 @@ function EventDetailScreen() {
 
       {/* Registration Form Modal */}
       <Modal visible={showForm} transparent animationType="slide" onRequestClose={() => setShowForm(false)}>
-        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior="padding">
           <Pressable style={styles.modalOverlay} onPress={() => setShowForm(false)}>
             <Pressable style={[styles.modalContent, { backgroundColor: colors.card }]} onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalHandle} />
@@ -260,11 +337,11 @@ function EventDetailScreen() {
 
                 <Text style={[styles.formLabel, { color: colors.text }]}>Korda NASUHA</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.kordaRow}>
-                  {NASUHA_KORDA.map((k) => (
-                    <Pressable key={k} onPress={() => setFormKorda(formKorda === k ? '' : k)}
-                      style={[styles.kordaChip, { backgroundColor: formKorda === k ? colors.primary : colors.surface, borderColor: formKorda === k ? colors.primary : colors.border }]}>
-                      <Text style={[styles.kordaChipText, { color: formKorda === k ? '#FFF' : colors.textSecondary }]}>
-                        {k.replace('Korda ', '')}
+                  {kordaOptions.map((k) => (
+                    <Pressable key={k.id} onPress={() => setFormKorda(formKorda === k.id ? '' : k.id)}
+                      style={[styles.kordaChip, { backgroundColor: formKorda === k.id ? colors.primary : colors.surface, borderColor: formKorda === k.id ? colors.primary : colors.border }]}>
+                      <Text style={[styles.kordaChipText, { color: formKorda === k.id ? '#FFF' : colors.textSecondary }]}>
+                        {k.label.replace('Korda ', '')}
                       </Text>
                     </Pressable>
                   ))}
@@ -285,10 +362,10 @@ function EventDetailScreen() {
                 <View style={{ height: 10 }} />
               </ScrollView>
 
-              <Pressable onPress={handleRegister}>
-                <LinearGradient colors={[colors.primary, '#0077B6']} style={styles.submitBtn} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
-                  <Ionicons name="checkmark-circle" size={20} color="#FFF" />
-                  <Text style={styles.submitText}>Konfirmasi Pendaftaran</Text>
+              <Pressable onPress={handleRegister} disabled={submitting}>
+                <LinearGradient colors={[colors.primary, '#0077B6']} style={[styles.submitBtn, submitting && { opacity: 0.7 }]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}>
+                  {submitting ? <ActivityIndicator color="#FFF" /> : <Ionicons name="checkmark-circle" size={20} color="#FFF" />}
+                  <Text style={styles.submitText}>{submitting ? 'Mengirim...' : 'Konfirmasi Pendaftaran'}</Text>
                 </LinearGradient>
               </Pressable>
             </Pressable>
@@ -305,7 +382,10 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   hero: { paddingHorizontal: Spacing.lg, paddingBottom: Spacing.xl },
-  backBtn: { marginBottom: Spacing.md },
+  heroTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: Spacing.md },
+  backBtn: {},
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: BorderRadius.full },
+  editBtnText: { color: '#FFF', fontSize: FontSize.sm, fontWeight: '700' },
   typeBadge: { alignSelf: 'flex-start', backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 4, borderRadius: BorderRadius.sm, marginBottom: Spacing.sm },
   typeBadgeText: { color: '#FFF', fontSize: FontSize.xs, fontWeight: '700' },
   heroTitle: { color: '#FFF', fontSize: FontSize.xxl, fontWeight: '800' },

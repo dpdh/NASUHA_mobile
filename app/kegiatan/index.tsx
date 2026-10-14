@@ -12,14 +12,33 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi } from '../../services/nasjakApi';
 
-const KEGIATAN = [
+type KegiatanItem = {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  gradient: string[];
+  schedule: string;
+  howToJoin: string;
+  stats: { events: number; beneficiaries: number; volunteers: number };
+};
+
+function compact(value: number): string {
+  if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1).replace('.', ',')}K+`;
+  return `${value}+`;
+}
+
+const KEGIATAN: KegiatanItem[] = [
   {
     id: 'air-minum',
     title: 'Air Minum Gratis',
     subtitle: 'Berbagi air minum untuk sesama',
     description: 'Program distribusi air minum gratis di area publik seperti stasiun, terminal, dan tempat keramaian. Menyebarkan kebaikan melalui segelas air.',
-    icon: 'water' as const,
+    icon: 'water',
     gradient: ['#00B4D8', '#0077B6'],
     schedule: 'Setiap Jumat & hari besar Islam',
     howToJoin: 'Hubungi koordinator korda terdekat atau daftar melalui TSN',
@@ -75,6 +94,33 @@ function KegiatanScreen() {
   const theme = useAppStore((s) => s.theme);
   const colors = Colors[theme];
   const insets = useSafeAreaInsets();
+  const { data } = useApiQuery(
+    () => contentApi.programs('kegiatan').then((result) => ({
+      items: result.data.map<KegiatanItem>((program) => ({
+        id: program.id,
+        title: program.title,
+        subtitle: program.subtitle,
+        description: program.description,
+        icon: program.icon as KegiatanItem['icon'],
+        gradient: program.gradient,
+        schedule: program.data?.schedule ?? '-',
+        howToJoin: program.data?.howToJoin ?? '-',
+        stats: { events: 0, beneficiaries: 0, volunteers: 0, ...(program.data?.stats ?? {}) },
+      })),
+      summary: result.meta?.kegiatanSummary as KegiatanItem['stats'] | undefined,
+    })),
+    [],
+    { cacheKey: 'programs_kegiatan' },
+  );
+  const items = data?.items?.length ? data.items : KEGIATAN;
+  const summary = data?.summary ?? items.reduce(
+    (total, item) => ({
+      events: total.events + item.stats.events,
+      beneficiaries: total.beneficiaries + item.stats.beneficiaries,
+      volunteers: total.volunteers + item.stats.volunteers,
+    }),
+    { events: 0, beneficiaries: 0, volunteers: 0 },
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
@@ -94,9 +140,9 @@ function KegiatanScreen() {
           <Text style={[styles.summaryTitle, { color: colors.gold }]}>Dampak Sosial NASUHA</Text>
           <View style={styles.summaryGrid}>
             {[
-              { val: '615+', label: 'Kegiatan', icon: 'calendar' },
-              { val: '68K+', label: 'Penerima Manfaat', icon: 'people' },
-              { val: '2.1K+', label: 'Relawan', icon: 'hand-left' },
+              { val: compact(summary.events), label: 'Kegiatan', icon: 'calendar' },
+              { val: compact(summary.beneficiaries), label: 'Penerima Manfaat', icon: 'people' },
+              { val: compact(summary.volunteers), label: 'Relawan', icon: 'hand-left' },
             ].map((s) => (
               <View key={s.label} style={styles.summaryItem}>
                 <Ionicons name={s.icon as any} size={20} color={colors.gold} />
@@ -108,7 +154,7 @@ function KegiatanScreen() {
         </View>
 
         {/* Program Cards */}
-        {KEGIATAN.map((k) => (
+        {items.map((k) => (
           <View key={k.id} style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
             <LinearGradient colors={k.gradient as [string, string]} style={styles.cardGradient}>
               <Ionicons name={k.icon} size={32} color="#FFF" />

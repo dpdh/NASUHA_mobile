@@ -1,4 +1,4 @@
-import React, { memo, useState, useCallback, useEffect } from 'react';
+import React, { memo, useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -14,18 +14,17 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
+import { goToHome } from '../../utils/navigation';
 import { useAppStore } from '../../store/appStore';
 import { Colors, Spacing, BorderRadius, FontSize, Shadows } from '../../constants/theme';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
-import { useGoogleAuth, fetchGoogleUserInfo } from '../../services/googleAuth';
-import { syncGoogleProfile } from '../../services/userProvider';
 
 const LOGO_SPLASH = require('../../assets/images/logo-splash.png');
 
 function RegisterScreen() {
   const theme = useAppStore((s) => s.theme);
   const register = useAppStore((s) => s.register);
-  const loginWithGoogle = useAppStore((s) => s.loginWithGoogle);
+  const setOnboarded = useAppStore((s) => s.setOnboarded);
   const colors = Colors[theme];
 
   const [name, setName] = useState('');
@@ -35,69 +34,6 @@ function RegisterScreen() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
-
-  const { request, response, promptAsync, isConfigured } = useGoogleAuth();
-
-  useEffect(() => {
-    if (response?.type === 'success' && response.authentication?.accessToken) {
-      handleGoogleSuccess(response.authentication.accessToken);
-    } else if (response?.type === 'error') {
-      setGoogleLoading(false);
-      Alert.alert('Error', 'Pendaftaran Google gagal. Silakan coba lagi.');
-    } else if (response?.type === 'dismiss') {
-      setGoogleLoading(false);
-    }
-  }, [response]);
-
-  const handleGoogleSuccess = useCallback(async (accessToken: string) => {
-    setGoogleLoading(true);
-    try {
-      const userInfo = await fetchGoogleUserInfo(accessToken);
-      if (!userInfo || !userInfo.email) {
-        Alert.alert('Error', 'Tidak dapat mengambil informasi akun Google');
-        setGoogleLoading(false);
-        return;
-      }
-
-      const providerProfile = await syncGoogleProfile(accessToken, { id: userInfo.id, email: userInfo.email, name: userInfo.name || userInfo.email.split('@')[0], avatar: userInfo.picture });
-      loginWithGoogle({
-        googleId: userInfo.id,
-        email: userInfo.email,
-        name: userInfo.name || userInfo.email.split('@')[0],
-        avatar: userInfo.picture,
-        membershipType: providerProfile?.membershipType,
-        membershipFeatures: providerProfile?.membershipFeatures,
-      });
-
-      const user = useAppStore.getState().user;
-      const roleMsg = (user?.role === 'super_admin' || user?.role === 'admin') ? `\nAnda terdaftar sebagai ${user?.role === 'super_admin' ? 'Super Admin' : 'Admin'}!` : '';
-      Alert.alert(
-        'Alhamdulillah!',
-        `Pendaftaran dengan Google berhasil. Selamat bergabung di NASUHA Jakarta!${roleMsg}`,
-        [{ text: 'Mulai', onPress: () => router.replace('/(tabs)/' as any) }],
-      );
-    } catch {
-      Alert.alert('Error', 'Terjadi kesalahan saat mendaftar dengan Google');
-    } finally {
-      setGoogleLoading(false);
-    }
-  }, [loginWithGoogle]);
-
-  const handleGoogleRegister = useCallback(async () => {
-    if (!isConfigured || !request) {
-      Alert.alert('Google Sign-Up Belum Aktif', 'Isi EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID untuk Android atau Client ID platform yang sesuai di file .env, lalu build ulang aplikasi.');
-      return;
-    }
-    setGoogleLoading(true);
-    try {
-      await promptAsync();
-    } catch {
-      setGoogleLoading(false);
-      Alert.alert('Error', 'Tidak dapat membuka halaman Google');
-    }
-  }, [promptAsync, isConfigured, request]);
-
   const handleRegister = useCallback(async () => {
     if (password !== confirmPassword) {
       Alert.alert('Error', 'Konfirmasi password tidak cocok');
@@ -105,8 +41,6 @@ function RegisterScreen() {
     }
 
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 800));
-
     const result = await register(name, email, password, phone);
     setLoading(false);
 
@@ -115,12 +49,11 @@ function RegisterScreen() {
       return;
     }
 
-    const user = useAppStore.getState().user;
-    const roleMsg = (user?.role === 'super_admin' || user?.role === 'admin') ? `\nAnda terdaftar sebagai ${user?.role === 'super_admin' ? 'Super Admin' : 'Admin'}!` : '';
-    Alert.alert('Alhamdulillah!', `Pendaftaran berhasil. Selamat bergabung di NASUHA Jakarta!${roleMsg}`, [
-      { text: 'Mulai', onPress: () => router.replace('/(tabs)/' as any) },
+    setOnboarded(true);
+    Alert.alert('Alhamdulillah!', 'Pendaftaran berhasil. Selamat bergabung di NASUHA Jakarta!', [
+      { text: 'Mulai', onPress: () => goToHome() },
     ]);
-  }, [name, email, phone, password, confirmPassword, register]);
+  }, [name, email, phone, password, confirmPassword, register, setOnboarded]);
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
@@ -140,33 +73,6 @@ function RegisterScreen() {
             <ShimmerGold style={styles.shimmerTop} />
             <Text style={[styles.cardTitle, { color: colors.text }]}>Daftar</Text>
             <Text style={[styles.cardSub, { color: colors.textSecondary }]}>Bergabung dengan komunitas NASUHA Jakarta</Text>
-
-            {/* Google Sign-Up Button */}
-            <Pressable
-              onPress={handleGoogleRegister}
-              disabled={!request || googleLoading}
-              style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
-            >
-              <View style={[styles.googleBtn, { backgroundColor: colors.surface, borderColor: colors.border }, googleLoading && { opacity: 0.6 }]}>
-                {googleLoading ? (
-                  <Text style={[styles.googleBtnText, { color: colors.text }]}>Menghubungkan...</Text>
-                ) : (
-                  <>
-                    <View style={styles.googleIconWrap}>
-                      <Text style={styles.googleG}>G</Text>
-                    </View>
-                    <Text style={[styles.googleBtnText, { color: colors.text }]}>Daftar dengan Google</Text>
-                  </>
-                )}
-              </View>
-            </Pressable>
-
-            {/* Divider */}
-            <View style={styles.dividerRow}>
-              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-              <Text style={[styles.dividerText, { color: colors.textMuted }]}>atau daftar manual</Text>
-              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
-            </View>
 
             {/* Name */}
             <View style={styles.inputGroup}>
@@ -260,14 +166,9 @@ function RegisterScreen() {
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
               >
-                {loading ? (
-                  <Text style={styles.registerText}>Mendaftar...</Text>
-                ) : (
-                  <>
-                    <Ionicons name="person-add-outline" size={20} color="#FFF" />
-                    <Text style={styles.registerText}>Daftar Sekarang</Text>
-                  </>
-                )}
+                {/* Struktur anak dibuat tetap (tidak ditukar) agar aman di Android Fabric. */}
+                <Ionicons name={loading ? 'hourglass-outline' : 'person-add-outline'} size={20} color="#FFF" />
+                <Text style={styles.registerText}>{loading ? 'Mendaftar...' : 'Daftar Sekarang'}</Text>
               </LinearGradient>
             </Pressable>
           </View>
@@ -297,42 +198,6 @@ const styles = StyleSheet.create({
   shimmerTop: { height: 3 },
   cardTitle: { fontSize: FontSize.xxl, fontWeight: '800', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
   cardSub: { fontSize: FontSize.sm, paddingHorizontal: Spacing.lg, marginTop: 4, marginBottom: Spacing.lg },
-
-  // Google Button
-  googleBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
-    paddingVertical: 12,
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1.5,
-    gap: Spacing.sm,
-  },
-  googleIconWrap: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: '#FFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  googleG: { fontSize: 15, fontWeight: '700', color: '#4285F4' },
-  googleBtnText: { fontSize: FontSize.md, fontWeight: '600' },
-
-  // Divider
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
-    gap: Spacing.sm,
-  },
-  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
-  dividerText: { fontSize: FontSize.sm },
 
   inputGroup: { paddingHorizontal: Spacing.lg, marginBottom: Spacing.md },
   label: { fontSize: FontSize.sm, fontWeight: '600', marginBottom: 6 },

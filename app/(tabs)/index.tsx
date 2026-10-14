@@ -14,9 +14,13 @@ import {
 } from 'react-native';
 import { AnasAvatar } from '../../components/ui/AnasAvatar';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
-import { MOTIVASI_QUOTES, RIYADHOH_ITEMS, SAMPLE_EVENTS, SAMPLE_TESTIMONIALS } from '../../constants/data';
+import { MOTIVASI_QUOTES, RIYADHOH_ITEMS } from '../../constants/data';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
+import { useApiQuery } from '../../hooks/useApiQuery';
+import { contentApi, riyadhohApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
+import type { Event, RiyadhohItem, SocialPost } from '../../types';
+import { addDaysKey, wibDateKey } from '../../utils/date';
 
 const LOGO_SPLASH = require('../../assets/images/logo-splash.png');
 
@@ -48,6 +52,13 @@ const QUICK_ACTIONS: QuickAction[] = [
   { id: 'social', icon: 'share-social', label: 'Sosial', route: '/social/', gradient: ['rgba(131,58,180,0.8)', 'rgba(225,48,108,0.9)'] },
 ];
 
+// Ditampilkan bila server belum memiliki post sosial.
+const FALLBACK_IG_POSTS: Pick<SocialPost, 'id' | 'title' | 'type' | 'url'>[] = [
+  { id: 'ig-1', title: 'Bahaya Riba Sehari-hari', type: 'Reels', url: 'https://www.instagram.com/nasuhajakarta/' },
+  { id: 'ig-2', title: 'Jadwal TSN September', type: 'Post', url: 'https://www.instagram.com/nasuhajakarta/' },
+  { id: 'ig-3', title: 'Kisah Lunas 200 Juta!', type: 'Reels', url: 'https://www.instagram.com/nasuhajakarta/' },
+];
+
 const QuickActionButton = memo(({ item, onPress }: { item: QuickAction; onPress: () => void }) => {
   return (
     <View style={styles.quickItemWrap}>
@@ -70,39 +81,46 @@ function HomeScreen() {
   const riyadhohLogs = useAppStore((s) => s.riyadhohLogs);
   const colors = Colors[theme];
 
-  const todayKey = useMemo(() => new Date().toISOString().split('T')[0], []);
+  const { data: home } = useApiQuery(() => contentApi.home(), [user?.id], { cacheKey: 'home', refetchOnFocus: true });
+  const { data: riyadhohData } = useApiQuery(() => riyadhohApi.items(), [], { cacheKey: 'riyadhoh_items' });
+  const riyadhohItems: RiyadhohItem[] = riyadhohData?.items?.length ? riyadhohData.items : RIYADHOH_ITEMS;
+
+  // Tanggal WIB, dihitung tiap render agar berganti hari tepat tengah malam.
+  const todayKey = wibDateKey();
 
   const riyadhohProgress = useMemo(() => {
-    const total = RIYADHOH_ITEMS.length;
+    const total = riyadhohItems.length;
     let done = 0;
-    for (const item of RIYADHOH_ITEMS) {
+    for (const item of riyadhohItems) {
       if (riyadhohLogs[`${item.id}_${todayKey}`]) done++;
     }
     return { done, total, pct: total > 0 ? Math.round((done / total) * 100) : 0 };
-  }, [riyadhohLogs, todayKey]);
+  }, [riyadhohLogs, todayKey, riyadhohItems]);
 
-  // Streak
+  // Streak (hari berturut-turut dengan minimal 1 amalan, hari ini boleh belum diisi)
   const streak = useMemo(() => {
     let count = 0;
-    const today = new Date();
     for (let i = 0; i < 365; i++) {
-      const d = new Date(today);
-      d.setDate(today.getDate() - i);
-      const dateKey = d.toISOString().split('T')[0];
+      const dateKey = addDaysKey(todayKey, -i);
       let anyDone = false;
-      for (const item of RIYADHOH_ITEMS) {
+      for (const item of riyadhohItems) {
         if (riyadhohLogs[`${item.id}_${dateKey}`]) { anyDone = true; break; }
       }
       if (anyDone) count++;
       else if (i > 0) break;
     }
     return count;
-  }, [riyadhohLogs]);
+  }, [riyadhohLogs, todayKey, riyadhohItems]);
 
-  const randomQuote = useMemo(
+  const fallbackQuote = useMemo(
     () => MOTIVASI_QUOTES[Math.floor(Math.random() * MOTIVASI_QUOTES.length)],
     [],
   );
+  const quote = home?.quoteOfTheDay || fallbackQuote;
+  const upcomingEvents: Event[] = home?.upcomingEvents ?? [];
+  const featuredTestimonial = home?.featuredTestimonial ?? null;
+  const unreadCount = home?.unreadNotifications ?? 0;
+  const igPosts = home?.socialPosts?.length ? home.socialPosts : FALLBACK_IG_POSTS;
 
   const displayName = user?.name || 'Sahabat NASUHA';
   const assistantFloat = useRef(new Animated.Value(0)).current;
@@ -178,6 +196,11 @@ function HomeScreen() {
               </Pressable>
               <Pressable onPress={() => router.push('/notifications/' as any)} hitSlop={8}>
                 <Ionicons name="notifications-outline" size={24} color={colors.text} />
+                {unreadCount > 0 && (
+                  <View style={styles.notifBadge}>
+                    <Text style={styles.notifBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                  </View>
+                )}
               </Pressable>
               <Pressable onPress={() => router.push('/(tabs)/profile' as any)} hitSlop={8}>
                 <Ionicons name="person-circle-outline" size={26} color={colors.text} />
@@ -208,9 +231,9 @@ function HomeScreen() {
         <View style={[styles.motivCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.md]}>
           <ShimmerGold style={styles.shimmerTop} />
           <Text style={[styles.motivLabel, { color: colors.gold }]}>Motivasi Hari Ini</Text>
-          <Text style={[styles.motivText, { color: colors.text }]}>&ldquo;{randomQuote.text}&rdquo;</Text>
+          <Text style={[styles.motivText, { color: colors.text }]}>&ldquo;{quote.text}&rdquo;</Text>
           <View style={styles.motivFooter}>
-            <Text style={[styles.motivAuthor, { color: colors.gold }]}>— {randomQuote.author}</Text>
+            <Text style={[styles.motivAuthor, { color: colors.gold }]}>— {quote.author}</Text>
             <Pressable onPress={() => router.push('/motivasi/' as any)} style={[styles.motivBtn, { backgroundColor: colors.primary }]}>
               <Text style={styles.motivBtnText}>BACA MOTIVASI</Text>
             </Pressable>
@@ -253,7 +276,7 @@ function HomeScreen() {
 
         {/* Kisah Sahabat */}
         <Text style={[styles.sectionTitle, { color: colors.text }]}>Kisah Sahabat NASUHA</Text>
-        {SAMPLE_TESTIMONIALS.slice(0, 1).map((t) => (
+        {featuredTestimonial && [featuredTestimonial].map((t) => (
           <Pressable key={t.id} onPress={() => router.push('/testimoni/' as any)} style={[styles.storyCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}>
             <View style={[styles.storyAvatar, { backgroundColor: colors.primary }]}>
               <Text style={styles.storyAvatarText}>{t.name.charAt(0)}</Text>
@@ -288,15 +311,11 @@ function HomeScreen() {
           </LinearGradient>
           <View style={styles.igContent}>
             <View style={styles.igPostRow}>
-              {[
-                { title: 'Bahaya Riba Sehari-hari', type: 'Reels', likes: '12.5K' },
-                { title: 'Jadwal TSN September', type: 'Post', likes: '8.2K' },
-                { title: 'Kisah Lunas 200 Juta!', type: 'Reels', likes: '24.1K' },
-              ].map((post) => (
+              {igPosts.slice(0, 3).map((post) => (
                 <Pressable
-                  key={post.title}
+                  key={post.id}
                   onPress={async () => {
-                    try { await Linking.openURL('https://www.instagram.com/nasuhajakarta/'); } catch {}
+                    try { await Linking.openURL(post.url || 'https://www.instagram.com/nasuhajakarta/'); } catch {}
                   }}
                   style={[styles.igPost, { backgroundColor: colors.surface }]}
                 >
@@ -305,8 +324,6 @@ function HomeScreen() {
                   </LinearGradient>
                   <Text style={[styles.igPostTitle, { color: colors.text }]} numberOfLines={2}>{post.title}</Text>
                   <View style={styles.igPostMeta}>
-                    <Ionicons name="heart" size={10} color="#E1306C" />
-                    <Text style={[styles.igPostLikes, { color: colors.textMuted }]}>{post.likes}</Text>
                     <View style={[styles.igTypeBadge, { backgroundColor: '#E1306C20' }]}>
                       <Text style={styles.igTypeText}>{post.type}</Text>
                     </View>
@@ -347,11 +364,11 @@ function HomeScreen() {
         </View>
       </View>
     ),
-    [theme, colors, riyadhohProgress, randomQuote, todayKey, displayName, streak],
+    [theme, colors, riyadhohProgress, quote, displayName, streak, unreadCount, featuredTestimonial, igPosts],
   );
 
   const renderEvent = useCallback(
-    ({ item }: { item: (typeof SAMPLE_EVENTS)[0] }) => (
+    ({ item }: { item: Event }) => (
       <Pressable
         onPress={() => router.push(`/event/${item.id}` as any)}
         style={[styles.eventCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.sm]}
@@ -366,9 +383,9 @@ function HomeScreen() {
           <Ionicons name="location-outline" size={12} color={colors.textSecondary} />
           <Text style={[styles.eventMetaText, { color: colors.textSecondary }]} numberOfLines={1}>{item.location}</Text>
         </View>
-        <Pressable style={[styles.detailBtn, { borderColor: colors.primary }]}>
+        <View style={[styles.detailBtn, { borderColor: colors.primary }]}>
           <Text style={[styles.detailBtnText, { color: colors.primary }]}>DETAIL EVENT</Text>
-        </Pressable>
+        </View>
       </Pressable>
     ),
     [colors],
@@ -377,14 +394,16 @@ function HomeScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: colors.background }}>
       <FlatList
-        data={SAMPLE_EVENTS.slice(0, 3)}
+        data={upcomingEvents.slice(0, 3)}
         keyExtractor={(item) => String(item.id)}
         renderItem={renderEvent}
         ListHeaderComponent={renderHeader}
+        ListEmptyComponent={
+          <Text style={[styles.emptyEvents, { color: colors.textSecondary }]}>Belum ada event mendatang.</Text>
+        }
         ListFooterComponent={<View style={{ height: 100 }} />}
         contentContainerStyle={styles.container}
         showsVerticalScrollIndicator={false}
-        removeClippedSubviews
       />
 
       {/* Floating Anas AI Button */}
@@ -427,6 +446,20 @@ export default memo(HomeScreen);
 
 const styles = StyleSheet.create({
   container: { paddingBottom: 24 },
+  notifBadge: {
+    position: 'absolute',
+    top: -4,
+    right: -6,
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 3,
+    borderRadius: 8,
+    backgroundColor: '#E63946',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifBadgeText: { color: '#FFF', fontSize: 9, fontWeight: '800' },
+  emptyEvents: { textAlign: 'center', fontSize: FontSize.sm, marginHorizontal: Spacing.lg, marginVertical: Spacing.md },
   hero: {
     marginHorizontal: Spacing.lg,
     marginTop: 12,

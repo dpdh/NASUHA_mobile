@@ -34,6 +34,9 @@ const formatAyahText = (item: QuranAyah, surahName: string) =>
 
 type ArabicFont = 'NotoNaskhArabic-Regular' | 'Amiri-Regular' | 'Lateef-Regular';
 
+// Ukuran teks Arab mengikuti pengaturan ukuran font Quran (12–28) dengan skala lebih besar.
+const arabicFontSize = (fontSize: number) => Math.max(24, Math.round(fontSize * 1.75));
+
 const getArabicLineHeight = (fontSize: number, fontFamily: ArabicFont) => {
   const multiplier = fontFamily === 'Lateef-Regular' ? 1.2 : 1.5;
   return Math.round(fontSize * multiplier);
@@ -112,8 +115,8 @@ const AyahItem = memo(
           styles.arabic,
           {
             color: colors.text,
-            fontSize: Math.max(fontSize, 30),
-            lineHeight: getArabicLineHeight(Math.max(fontSize, 30), arabicFont),
+            fontSize: arabicFontSize(fontSize),
+            lineHeight: getArabicLineHeight(arabicFontSize(fontSize), arabicFont),
             fontFamily: arabicFont,
           },
         ]}>{item.arabic}</Text>
@@ -342,7 +345,10 @@ function QuranDetailScreen() {
 
   const bookmarkSet = useMemo(() => new Set(bookmarkedAyahs), [bookmarkedAyahs]);
 
-  const handleToggle = useCallback((key: string) => toggleBookmarkAyah(key), [toggleBookmarkAyah]);
+  const handleToggle = useCallback(
+    (key: string) => toggleBookmarkAyah(key, `${surahName || `Surah ${surahId}`}: ${key.split(':')[1]}`),
+    [toggleBookmarkAyah, surahName, surahId],
+  );
 
   const handleMarkRead = useCallback((ayahNumber: number) => {
     setLastReadAyah(surahId, ayahNumber);
@@ -415,8 +421,10 @@ function QuranDetailScreen() {
         <Pressable onPress={() => setShowJumpPicker(!showJumpPicker)} style={{ flex: 1, alignItems: 'center' }}>
           <Text style={[styles.headerTitle, { color: colors.text }]}>{surahName || `Surah ${surahId}`}</Text>
           <Text style={[styles.headerSub, { color: colors.textSecondary }]}>
-            {surahArabic ? `${surahArabic} • ` : ''}{totalAyat || '...'} ayat
-            {!arabicOnly && lastReadAyah > 0 ? ` • Ayat ${lastReadAyah}` : ''}
+            {/* Latin di depan: bila diawali huruf Arab, Android membalik urutan seluruh baris (BiDi). */}
+            {totalAyat || '...'} ayat
+            {!arabicOnly && lastReadAyah > 0 ? ` • Terakhir ayat ${lastReadAyah}` : ''}
+            {surahArabic ? ` • ${surahArabic}` : ''}
           </Text>
         </Pressable>
         <Pressable onPress={() => setArabicOnly((value) => !value)} hitSlop={12} style={styles.modeButton}>
@@ -563,7 +571,6 @@ function QuranDetailScreen() {
           renderItem={renderItem}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
-          removeClippedSubviews
           initialNumToRender={15}
           maxToRenderPerBatch={10}
           windowSize={7}
