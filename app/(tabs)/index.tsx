@@ -7,6 +7,7 @@ import {
     Easing,
     FlatList,
     Linking,
+    Platform,
     Pressable,
     StyleSheet,
     Text,
@@ -21,6 +22,9 @@ import { contentApi, riyadhohApi } from '../../services/nasjakApi';
 import { useAppStore } from '../../store/appStore';
 import type { Event, RiyadhohItem, SocialPost } from '../../types';
 import { addDaysKey, wibDateKey } from '../../utils/date';
+
+// Quote cadangan (offline) dipilih sekali per sesi app; Math.random tidak boleh dipanggil saat render.
+const FALLBACK_QUOTE_INDEX = Math.floor(Math.random() * MOTIVASI_QUOTES.length);
 
 const LOGO_SPLASH = require('../../assets/images/logo-splash.png');
 
@@ -43,6 +47,7 @@ const QUICK_ACTIONS: QuickAction[] = [
   { id: 'event', icon: 'calendar', label: 'Event', route: '/(tabs)/event', gradient: ['rgba(144,224,239,0.8)', 'rgba(0,119,182,0.9)'] },
   { id: 'tsn', icon: 'people', label: 'TSN', route: '/tsn/', gradient: ['rgba(46,196,182,0.8)', 'rgba(0,180,216,0.9)'] },
   { id: 'lbu', icon: 'rocket', label: 'LBU', route: '/lbu/', gradient: ['rgba(212,168,83,0.82)', 'rgba(184,134,11,0.9)'] },
+  { id: 'debt-repayment', icon: 'wallet', label: 'Teknik Utang', route: '/debt-repayment/', gradient: ['rgba(13,99,142,0.9)', 'rgba(11,52,87,0.95)'] },
   { id: 'lapak', icon: 'storefront', label: 'Lapak', route: '/lapak/', gradient: ['rgba(255,179,71,0.85)', 'rgba(212,168,83,0.9)'] },
   { id: 'tanya', icon: 'chatbubbles', label: 'Tanya', route: '/tanya/', gradient: ['rgba(74,144,217,0.8)', 'rgba(46,196,182,0.9)'] },
   { id: 'kegiatan', icon: 'hand-left', label: 'Kegiatan', route: '/kegiatan/', gradient: ['rgba(46,196,182,0.8)', 'rgba(14,140,127,0.9)'] },
@@ -71,6 +76,105 @@ const QuickActionButton = memo(({ item, onPress }: { item: QuickAction; onPress:
         </LinearGradient>
       </Pressable>
       <Text style={styles.quickLabel} numberOfLines={2}>{item.label}</Text>
+    </View>
+  );
+});
+
+const HOME_LIGHTS = [
+  { size: 150, left: -42, top: 34, color: ['rgba(76,201,240,0.34)', 'rgba(0,119,182,0.04)'] as [string, string], x: 38, y: 26, duration: 9000, delay: 0 },
+  { size: 118, left: 150, top: -34, color: ['rgba(125,211,252,0.28)', 'rgba(212,168,83,0.08)'] as [string, string], x: -30, y: 42, duration: 7600, delay: 500 },
+  { size: 92, left: 238, top: 128, color: ['rgba(212,168,83,0.3)', 'rgba(255,255,255,0.03)'] as [string, string], x: -34, y: -30, duration: 8200, delay: 900 },
+  { size: 74, left: 46, top: 176, color: ['rgba(0,180,216,0.22)', 'rgba(212,168,83,0.04)'] as [string, string], x: 28, y: -24, duration: 6800, delay: 350 },
+];
+
+const HomeLightOrb = memo(({ light }: { light: (typeof HOME_LIGHTS)[number] }) => {
+  const driftX = useRef(new Animated.Value(0)).current;
+  const driftY = useRef(new Animated.Value(0)).current;
+  const glow = useRef(new Animated.Value(0.55)).current;
+
+  useEffect(() => {
+    const xLoop = Animated.loop(Animated.sequence([
+      Animated.timing(driftX, { toValue: light.x, duration: light.duration, delay: light.delay, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(driftX, { toValue: -light.x * 0.7, duration: light.duration * 0.85, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(driftX, { toValue: 0, duration: light.duration * 0.7, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ]));
+    const yLoop = Animated.loop(Animated.sequence([
+      Animated.timing(driftY, { toValue: -light.y, duration: light.duration * 0.72, delay: light.delay, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(driftY, { toValue: light.y, duration: light.duration * 0.92, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+      Animated.timing(driftY, { toValue: 0, duration: light.duration * 0.64, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+    ]));
+    const glowLoop = Animated.loop(Animated.sequence([
+      Animated.timing(glow, { toValue: 0.9, duration: 1700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(glow, { toValue: 0.4, duration: 2100, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]));
+    xLoop.start();
+    yLoop.start();
+    glowLoop.start();
+    return () => { xLoop.stop(); yLoop.stop(); glowLoop.stop(); };
+  }, [driftX, driftY, glow, light]);
+
+  return (
+    <Animated.View
+      pointerEvents="none"
+      style={[styles.homeLightOrb, { width: light.size, height: light.size, borderRadius: light.size / 2, left: light.left, top: light.top, opacity: glow, transform: [{ translateX: driftX }, { translateY: driftY }] }]}
+    >
+      <LinearGradient colors={light.color} style={StyleSheet.absoluteFill} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+    </Animated.View>
+  );
+});
+
+const MovingLightBorder = memo(({ duration }: { duration: number }) => {
+  const lightOneX = useRef(new Animated.Value(0)).current;
+  const lightOneY = useRef(new Animated.Value(0)).current;
+  const lightTwoX = useRef(new Animated.Value(0)).current;
+  const lightTwoY = useRef(new Animated.Value(0)).current;
+  const lightThreeX = useRef(new Animated.Value(0)).current;
+  const lightThreeY = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const animation = Animated.loop(Animated.parallel([
+      Animated.sequence([
+        Animated.timing(lightOneX, { toValue: 42, duration: duration * 0.22, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightOneX, { toValue: -28, duration: duration * 0.18, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightOneX, { toValue: 12, duration: duration * 0.2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightOneX, { toValue: 0, duration: duration * 0.16, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(lightOneY, { toValue: -34, duration: duration * 0.2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightOneY, { toValue: 28, duration: duration * 0.2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightOneY, { toValue: 8, duration: duration * 0.18, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightOneY, { toValue: 0, duration: duration * 0.18, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(lightTwoX, { toValue: -42, duration: duration * 0.26, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightTwoX, { toValue: 26, duration: duration * 0.18, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightTwoX, { toValue: 0, duration: duration * 0.2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(lightTwoY, { toValue: 30, duration: duration * 0.22, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightTwoY, { toValue: -26, duration: duration * 0.2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightTwoY, { toValue: 0, duration: duration * 0.22, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(lightThreeX, { toValue: 34, duration: duration * 0.18, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightThreeX, { toValue: -36, duration: duration * 0.24, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightThreeX, { toValue: 0, duration: duration * 0.2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(lightThreeY, { toValue: -24, duration: duration * 0.2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightThreeY, { toValue: 36, duration: duration * 0.22, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(lightThreeY, { toValue: 0, duration: duration * 0.2, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    ]));
+    animation.start();
+    return () => animation.stop();
+  }, [duration, lightOneX, lightOneY, lightTwoX, lightTwoY, lightThreeX, lightThreeY]);
+
+  return (
+    <View pointerEvents="none" style={styles.movingLightBorder}>
+      <Animated.View style={[styles.movingLight, styles.movingLightOne, { transform: [{ translateX: lightOneX }, { translateY: lightOneY }] }]} />
+      <Animated.View style={[styles.movingLight, styles.movingLightTwo, { transform: [{ translateX: lightTwoX }, { translateY: lightTwoY }] }]} />
+      <Animated.View style={[styles.movingLight, styles.movingLightThree, { transform: [{ translateX: lightThreeX }, { translateY: lightThreeY }] }]} />
     </View>
   );
 });
@@ -112,10 +216,7 @@ function HomeScreen() {
     return count;
   }, [riyadhohLogs, todayKey, riyadhohItems]);
 
-  const fallbackQuote = useMemo(
-    () => MOTIVASI_QUOTES[Math.floor(Math.random() * MOTIVASI_QUOTES.length)],
-    [],
-  );
+  const fallbackQuote = MOTIVASI_QUOTES[FALLBACK_QUOTE_INDEX] || MOTIVASI_QUOTES[0];
   const quote = home?.quoteOfTheDay || fallbackQuote;
   const upcomingEvents: Event[] = home?.upcomingEvents ?? [];
   const featuredTestimonial = home?.featuredTestimonial ?? null;
@@ -174,6 +275,7 @@ function HomeScreen() {
         ]),
       ]),
     ).start();
+
   }, [anasFloat, anasPulse, anasRotate, logoPulse, logoShimmer]);
 
   const renderHeader = useCallback(
@@ -185,6 +287,9 @@ function HomeScreen() {
           style={styles.hero}
         >
           <View style={styles.heroGlassOverlay} />
+          <View pointerEvents="none" style={styles.homeLightLayer}>
+            {HOME_LIGHTS.map((light) => <HomeLightOrb key={`${light.left}-${light.top}`} light={light} />)}
+          </View>
           <View style={styles.heroTopRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.salam, { color: colors.textSecondary }]}>Assalamu'alaikum 👋</Text>
@@ -225,6 +330,20 @@ function HomeScreen() {
             />
             <Text style={[styles.brandText, { color: colors.text }]}>NASUHA</Text>
           </View>
+
+          {(user?.role === 'super_admin' || user?.role === 'admin') && (
+            <Pressable
+              onPress={() => router.push((Platform.OS === 'web' && user?.role === 'super_admin' ? '/admin-web' : '/admin/') as any)}
+              style={[styles.adminShortcut, { backgroundColor: 'rgba(255, 107, 107, 0.14)', borderColor: 'rgba(255, 107, 107, 0.42)' }]}
+            >
+              <Ionicons name="shield-checkmark" size={18} color="#FF6B6B" />
+              <View style={styles.adminShortcutTextWrap}>
+                <Text style={[styles.adminShortcutTitle, { color: colors.text }]}>Open Admin Panel</Text>
+                <Text style={[styles.adminShortcutSub, { color: colors.textSecondary }]}>Kelola user, produk, dan event</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textSecondary} />
+            </Pressable>
+          )}
         </LinearGradient>
 
         {/* Daily Motivation */}
@@ -406,6 +525,19 @@ function HomeScreen() {
         showsVerticalScrollIndicator={false}
       />
 
+      {/* Floating Games NAS Button */}
+      <Animated.View style={[styles.gamesFab, { transform: [{ translateY: assistantFloat }] }]}>
+        <View style={styles.gamesShell}>
+          <MovingLightBorder duration={1800} />
+          <Pressable onPress={() => router.push('/games/' as any)} style={({ pressed }) => [styles.gamesButton, { opacity: pressed ? 0.9 : 1 }]}>
+            <LinearGradient colors={['#F6D77A', '#C9972B', '#8B5E12']} style={styles.gamesGradient}>
+              <Ionicons name="game-controller" size={15} color="#FFF" />
+            </LinearGradient>
+            <View style={styles.gamesLabel}><Text style={styles.gamesLabelText}>Games NAS</Text></View>
+          </Pressable>
+        </View>
+      </Animated.View>
+
       {/* Floating Anas AI Button */}
       <Animated.View
         style={[
@@ -420,23 +552,26 @@ function HomeScreen() {
         ]}
       >
         <View style={styles.fabGlow} />
-        <Pressable
-          onPress={() => router.push('/asisten/' as any)}
-          style={({ pressed }) => [
-            styles.fabButton,
-            {
-              opacity: pressed ? 0.95 : 1,
-              transform: [{ scale: pressed ? 0.98 : 1 }],
-            },
-          ]}
-        >
-          <LinearGradient colors={['#4CC9F0', '#0077B6', '#003C8F']} style={styles.fabGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
-            <AnasAvatar size={42} />
-          </LinearGradient>
-          <View style={styles.fabLabel}>
-            <Text style={styles.fabLabelText}>Anas AI</Text>
-          </View>
-        </Pressable>
+        <View style={styles.fabShell}>
+          <MovingLightBorder duration={2200} />
+          <Pressable
+            onPress={() => router.push('/asisten/' as any)}
+            style={({ pressed }) => [
+              styles.fabButton,
+              {
+                opacity: pressed ? 0.95 : 1,
+                transform: [{ scale: pressed ? 0.98 : 1 }],
+              },
+            ]}
+          >
+            <LinearGradient colors={['#4CC9F0', '#0077B6', '#003C8F']} style={styles.fabGradient} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+              <AnasAvatar size={28} />
+            </LinearGradient>
+            <View style={styles.fabLabel}>
+              <Text style={styles.fabLabelText}>Anas AI</Text>
+            </View>
+          </Pressable>
+        </View>
       </Animated.View>
     </View>
   );
@@ -486,6 +621,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
   },
+  homeLightLayer: { ...StyleSheet.absoluteFill, overflow: 'hidden', borderRadius: 30 },
+  homeLightOrb: { position: 'absolute', overflow: 'hidden', shadowColor: '#4CC9F0', shadowOpacity: 0.28, shadowRadius: 28, shadowOffset: { width: 0, height: 0 }, elevation: 5 },
   heroTopRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', zIndex: 1 },
   heroIcons: { flexDirection: 'row', gap: Spacing.md },
   salam: { fontSize: FontSize.md },
@@ -500,6 +637,20 @@ const styles = StyleSheet.create({
     gap: 6,
     zIndex: 1,
   },
+  adminShortcut: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    zIndex: 1,
+  },
+  adminShortcutTextWrap: { flex: 1 },
+  adminShortcutTitle: { fontSize: FontSize.md, fontWeight: '700' },
+  adminShortcutSub: { fontSize: FontSize.xs, marginTop: 2 },
   logoGlow: {
     position: 'absolute',
     width: 92,
@@ -743,17 +894,29 @@ const styles = StyleSheet.create({
     bottom: 112,
     zIndex: 20,
   },
+  gamesFab: { position: 'absolute', right: 14, bottom: 178, zIndex: 20 },
+  gamesShell: { position: 'relative', padding: 2, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(246,215,122,0.36)', shadowColor: '#A9E8FF', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 0 }, elevation: 8 },
+  gamesButton: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingLeft: 5, paddingRight: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: 'rgba(0,0,0,0.88)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)', shadowColor: '#F6D77A', shadowOpacity: 0.28, shadowRadius: 12, shadowOffset: { width: 0, height: 6 }, elevation: 8 },
+  gamesGradient: { width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' },
+  gamesLabel: { backgroundColor: 'rgba(0,0,0,0.72)', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, minWidth: 88, alignItems: 'center' },
+  gamesLabelText: { color: '#FFFFFF', fontSize: FontSize.xs, fontWeight: '900' },
+  fabShell: { position: 'relative', padding: 2, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(125,211,252,0.34)', shadowColor: '#A9E8FF', shadowOpacity: 0.3, shadowRadius: 12, shadowOffset: { width: 0, height: 0 }, elevation: 8 },
+  movingLightBorder: { position: 'absolute', top: -28, right: -28, bottom: -28, left: -28, borderRadius: 999, overflow: 'hidden' },
+  movingLight: { position: 'absolute', width: 86, height: 86, borderRadius: 43, opacity: 0.72, shadowRadius: 24, shadowOffset: { width: 0, height: 0 }, elevation: 4 },
+  movingLightOne: { left: -26, top: -22, backgroundColor: 'rgba(255,255,255,0.84)', shadowColor: '#FFFFFF' },
+  movingLightTwo: { right: -24, top: 8, backgroundColor: 'rgba(169,232,255,0.72)', shadowColor: '#A9E8FF' },
+  movingLightThree: { left: 28, bottom: -30, backgroundColor: 'rgba(255,232,173,0.68)', shadowColor: '#FFE8AD' },
   fabButton: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    paddingLeft: 6,
-    paddingRight: 12,
-    paddingVertical: 6,
+    paddingLeft: 5,
+    paddingRight: 10,
+    paddingVertical: 5,
     borderRadius: 999,
-    backgroundColor: 'rgba(255,255,255,0.16)',
+    backgroundColor: 'rgba(0,0,0,0.88)',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.18)',
+    borderColor: 'rgba(255,255,255,0.16)',
     shadowColor: '#7DD3FC',
     shadowOpacity: 0.24,
     shadowRadius: 12,
@@ -761,9 +924,9 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   fabGradient: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#7DD3FC',
@@ -785,15 +948,15 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   fabLabel: {
-    backgroundColor: 'rgba(76, 201, 240, 0.08)',
-    paddingHorizontal: 10,
+    backgroundColor: 'rgba(0,0,0,0.72)',
+    paddingHorizontal: 9,
     paddingVertical: 4,
     borderRadius: 999,
     minWidth: 80,
     alignItems: 'center',
   },
   fabLabelText: {
-    color: '#EAFBFF',
+    color: '#FFFFFF',
     fontSize: 11.5,
     fontWeight: '800',
     letterSpacing: 0.2,

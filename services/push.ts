@@ -1,3 +1,4 @@
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { getToken } from './api';
 import { meApi } from './nasjakApi';
@@ -11,13 +12,14 @@ let registeredToken: string | null = null;
  * didapat (mis. build tanpa kredensial FCM), dilewati diam-diam.
  */
 export async function registerPushDevice(): Promise<void> {
-  if (Platform.OS === 'web' || !getToken()) return;
+  if (Platform.OS === 'web' || !getToken() || registeredToken) return;
   const Notifications = getNotifications();
   if (!Notifications) return;
   try {
     const permission = await Notifications.getPermissionsAsync();
     if (!permission.granted) return;
-    const { data } = await Notifications.getExpoPushTokenAsync();
+    const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+    const { data } = await Notifications.getExpoPushTokenAsync(projectId ? { projectId } : undefined);
     if (!data) return;
     await meApi.registerDevice(data, Platform.OS);
     registeredToken = data;

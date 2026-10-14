@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { ShimmerGold } from '../../components/ui/ShimmerGold';
 import { BorderRadius, Colors, FontSize, Shadows, Spacing } from '../../constants/theme';
+import { useGoogleSignIn } from '../../hooks/useGoogleSignIn';
 import { useAppStore } from '../../store/appStore';
 
 const LOGO_SPLASH = require('../../assets/images/logo-splash.png');
@@ -31,6 +32,7 @@ function LoginScreen() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const { googleLoading, signInWithGoogle } = useGoogleSignIn();
   const handleForgotPassword = useCallback(() => {
     Alert.alert(
       'Lupa Password',
@@ -44,7 +46,7 @@ function LoginScreen() {
 
   const handleLogin = useCallback(async () => {
     if (!identifier.trim() || !password) {
-      Alert.alert('Error', 'Email/no. HP dan password harus diisi');
+      Alert.alert('Error', 'Email dan password harus diisi');
       return;
     }
 
@@ -86,7 +88,7 @@ function LoginScreen() {
           <View style={styles.logoSection}>
             <Image source={LOGO_SPLASH} style={styles.logo} resizeMode="contain" />
             <Text style={[styles.appName, { color: colors.primary }]}>NASUHA App</Text>
-            <Text style={[styles.tagline, { color: colors.gold }]}>Hijrah Bersama, Tumbuh Bersama</Text>
+            <Text style={[styles.tagline, { color: colors.gold }]}>Bersahabat di Dunia, Bertetangga di Surga</Text>
           </View>
 
           {/* Login Card */}
@@ -95,9 +97,31 @@ function LoginScreen() {
             <Text style={[styles.cardTitle, { color: colors.text }]}>Masuk</Text>
             <Text style={[styles.cardSub, { color: colors.textSecondary }]}>Assalamu&apos;alaikum, silakan login</Text>
 
-            {/* Email or phone */}
+            {/* Google Sign-In: struktur anak tetap (tidak ditukar saat loading) agar aman di Android Fabric. */}
+            <Pressable
+              onPress={signInWithGoogle}
+              disabled={googleLoading || loading}
+              style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}
+              accessibilityRole="button"
+              accessibilityLabel="Masuk dengan Google"
+            >
+              <View style={[styles.googleBtn, { backgroundColor: colors.surface, borderColor: colors.border }, googleLoading && { opacity: 0.6 }]}>
+                <View style={styles.googleIconWrap}>
+                  <Text style={styles.googleG}>G</Text>
+                </View>
+                <Text style={[styles.googleBtnText, { color: colors.text }]}>{googleLoading ? 'Menghubungkan...' : 'Masuk dengan Google'}</Text>
+              </View>
+            </Pressable>
+
+            <View style={styles.dividerRow}>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+              <Text style={[styles.dividerText, { color: colors.textMuted }]}>atau</Text>
+              <View style={[styles.dividerLine, { backgroundColor: colors.border }]} />
+            </View>
+
+            {/* Email */}
             <View style={styles.inputGroup}>
-              <Text style={[styles.label, { color: colors.textSecondary }]}>Email atau No. HP</Text>
+              <Text style={[styles.label, { color: colors.textSecondary }]}>Email / No. HP</Text>
               <View style={[styles.inputBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
                 <Ionicons name="person-circle-outline" size={20} color={colors.textMuted} />
                 <TextInput
@@ -106,7 +130,7 @@ function LoginScreen() {
                   placeholderTextColor={colors.textMuted}
                   value={identifier}
                   onChangeText={setIdentifier}
-                  keyboardType="default"
+                  keyboardType="email-address"
                   autoCapitalize="none"
                   autoCorrect={false}
                 />
@@ -138,7 +162,7 @@ function LoginScreen() {
             </Pressable>
 
             {/* Login Button */}
-            <Pressable onPress={handleLogin} disabled={loading} style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}>
+            <Pressable onPress={handleLogin} disabled={loading || googleLoading} style={({ pressed }) => [{ opacity: pressed ? 0.9 : 1 }]}>
               <LinearGradient
                 colors={[colors.primary, '#0077B6']}
                 style={[styles.loginBtn, loading && { opacity: 0.6 }]}
@@ -163,9 +187,17 @@ function LoginScreen() {
           {/* Guest */}
           <Pressable
             onPress={() => goToHome()}
-            style={styles.guestRow}
+            style={({ pressed }) => [
+              styles.guestRow,
+              {
+                borderColor: colors.primary,
+                backgroundColor: colors.overlay,
+                opacity: pressed ? 0.8 : 1,
+              },
+            ]}
           >
-            <Text style={[styles.guestText, { color: colors.textMuted }]}>Masuk sebagai Tamu</Text>
+            <Ionicons name="person-outline" size={19} color={colors.primary} />
+            <Text style={[styles.guestText, { color: colors.primary }]}>Masuk sebagai Tamu</Text>
           </Pressable>
 
           {/* Lihat Onboarding */}
@@ -187,16 +219,56 @@ export default memo(LoginScreen);
 const styles = StyleSheet.create({
   container: { flex: 1 },
   scroll: { flexGrow: 1, justifyContent: 'center', padding: Spacing.lg },
-  logoSection: { alignItems: 'center', marginBottom: Spacing.xl },
-  logo: { width: 88, height: 88, marginBottom: Spacing.md },
-  appName: { fontSize: FontSize.xxxl, fontWeight: '900', letterSpacing: 2 },
+  logoSection: { alignItems: 'center', marginTop: 42, marginBottom: Spacing.xl },
+  logo: { width: 88, height: 88, marginBottom: Spacing.md, marginTop: 20 },
+  appName: { fontSize: FontSize.xxxl, fontWeight: '900', letterSpacing: 2, marginTop: 6 },
   tagline: { fontSize: FontSize.sm, fontWeight: '600', marginTop: 4 },
   card: { borderRadius: BorderRadius.xl, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
   shimmerTop: { height: 3 },
-  cardTitle: { fontSize: FontSize.xxl, fontWeight: '800', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg },
-  cardSub: { fontSize: FontSize.sm, paddingHorizontal: Spacing.lg, marginTop: 4, marginBottom: Spacing.lg },
+  cardTitle: { fontSize: FontSize.xxl, fontWeight: '800', paddingHorizontal: Spacing.lg, paddingTop: Spacing.lg, textAlign: 'center' },
+  cardSub: { fontSize: FontSize.sm, paddingHorizontal: Spacing.lg, marginTop: 4, marginBottom: Spacing.lg, textAlign: 'center' },
 
-  inputGroup: { paddingHorizontal: Spacing.lg, marginBottom: Spacing.md },
+  // Google Button
+  googleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginHorizontal: Spacing.lg,
+    marginBottom: 8,
+    paddingVertical: 12,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1.5,
+    gap: Spacing.sm,
+  },
+  googleIconWrap: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: '#FFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  googleG: {
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#4285F4',
+  },
+  googleBtnText: { fontSize: FontSize.md, fontWeight: '600' },
+
+  // Divider
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginHorizontal: Spacing.lg,
+    marginBottom: 8,
+    gap: Spacing.sm,
+  },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth },
+  dividerText: { fontSize: FontSize.sm },
+
+  inputGroup: { paddingHorizontal: Spacing.lg, marginBottom: 10 },
   label: { fontSize: FontSize.sm, fontWeight: '600', marginBottom: 6 },
   inputBox: { flexDirection: 'row', alignItems: 'center', borderRadius: BorderRadius.md, paddingHorizontal: Spacing.md, height: 48, borderWidth: 1, gap: 10 },
   input: { flex: 1, fontSize: FontSize.md, height: 48 },
@@ -207,8 +279,8 @@ const styles = StyleSheet.create({
   registerRow: { flexDirection: 'row', justifyContent: 'center', marginTop: Spacing.lg },
   registerLabel: { fontSize: FontSize.md },
   registerLink: { fontSize: FontSize.md, fontWeight: '700' },
-  guestRow: { alignItems: 'center', marginTop: Spacing.md },
-  guestText: { fontSize: FontSize.sm, fontWeight: '600' },
+  guestRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: Spacing.sm, marginHorizontal: Spacing.lg, marginTop: Spacing.md, paddingVertical: 13, borderRadius: BorderRadius.xl, borderWidth: 2.5 },
+  guestText: { fontSize: FontSize.md, fontWeight: '800' },
   onboardingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: Spacing.md, paddingBottom: Spacing.lg },
   onboardingText: { fontSize: FontSize.sm, fontWeight: '600' },
 });

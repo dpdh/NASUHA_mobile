@@ -21,7 +21,7 @@ The app follows a layered architecture. New code should depend inward and keep f
 ## Current Boundaries
 
 - `services/storage.ts` owns AsyncStorage access, JSON serialization, and cache expiry.
-- `services/accountRepository.ts` owns persisted account records.
+- `services/api.ts` and `services/nasjakApi.ts` own all access to nasjak-backend (session token, errors, uploads).
 - `services/quranApi.ts` and `services/hadisApi.ts` own remote API access and use the shared cache boundary.
 - `store/appStore.ts` owns application state transitions and delegates persistence to repositories.
 

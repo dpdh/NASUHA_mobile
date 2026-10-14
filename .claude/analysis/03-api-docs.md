@@ -9,7 +9,9 @@
 | Bagian | Status |
 |---|---|
 | Auth email/HP + password, logout, me, ganti password | ✅ |
-| Login Google (`/auth/google`), lupa/reset password OTP | ⏳ fase 2 / 1b (reset sementara oleh admin → password sementara) |
+| Login Google (`/auth/google`, verifikasi idToken via JWKS / accessToken via tokeninfo) | ✅ (dimajukan 2026-10-14 saat merge repo `NASUHA_mobile`) |
+| Lupa/reset password OTP | ⏳ fase 1b (reset sementara oleh admin → password sementara) |
+| Kisah, Kuis NAS, Buku digital, Grup Ibadah (gabung/keluar + jumlah anggota) | ✅ `/stories`, `/quiz-questions`, `/books`, `/worship-groups` + CRUD CMS |
 | Profil, avatar, stats, hapus akun, preferensi, device, notifikasi inbox | ✅ |
 | Upload gambar (`/uploads`, `/me/avatar`) | ✅ |
 | Config, referensi, membership plans, home, search | ✅ |
@@ -69,7 +71,7 @@ App membaca `EXPO_PUBLIC_API_BASE_URL` (sudah ada di `.env.example`), isi dengan
 ### Fase auth (keputusan 2026-10-14)
 - **Fase 1:** login **email/no. HP + password** saja — `register`, `login`, `logout`, `me`, ganti password. Tombol "Masuk dengan Google" di app disembunyikan.
 - **Fase 1b (opsional, butuh SMTP):** lupa password via OTP email. Sebelum itu siap, reset dilakukan admin (17.2).
-- **Fase 2:** login Google (`POST /auth/google`, 1.3). Skema tabel `users` sudah menyiapkan kolom `google_subject` & `auth_provider` dari awal supaya tidak perlu migrasi ulang.
+- **Fase 2 (sudah dikerjakan 2026-10-14):** login Google (`POST /auth/google`, 1.3). Identitas Google disimpan di tabel `oauth_identities`; `users.password_hash` boleh kosong untuk akun Google.
 
 ### Format
 - JSON, `Content-Type: application/json`, key **camelCase** (sama dengan `types/index.ts`, supaya mapping minimal).
@@ -298,26 +300,26 @@ Error:
 - 403 `"Akun Anda dinonaktifkan. Hubungi admin."` (isActive = false).
 - 422 field kosong.
 
-### 1.3 `POST /auth/google` — Public (Bearer = Google access token) — **FASE 2**
-> Tidak dikerjakan di fase 1. Selama belum ada, `EXPO_PUBLIC_USER_PROVIDER`/Google client ID dikosongkan dan tombol Google disembunyikan.
-
-Kontrak sudah ada (`backend/USER_PROVIDER_CONTRACT.md`) — **dipertahankan**, ditambah token aplikasi.
+### 1.3 `POST /auth/google` — Public
+Menggantikan endpoint `/auth/google` di backend JSON lama repo `NASUHA_mobile` (`backend/server.mjs`), yang hanya mencocokkan
+satu `GOOGLE_CLIENT_ID`, tidak memeriksa `email_verified`, menautkan akun hanya lewat email, dan menyimpan token sesi polos.
 ```http
 POST /auth/google
-Authorization: Bearer <google-access-token>
+Content-Type: application/json
 ```
 ```json
-{ "googleId": "1093…", "email": "user@gmail.com", "name": "User", "avatar": "https://…" }
+{ "idToken": "eyJhbGciOiJSUzI1NiIs…", "accessToken": "ya29.…", "deviceName": "nasjak-app" }
 ```
-Server: verifikasi token ke Google (`https://www.googleapis.com/oauth2/v3/userinfo` atau tokeninfo), pakai `sub` sebagai identitas.
-Jika email sudah terdaftar via password → tautkan `google_subject` ke akun tsb.
+- Minimal salah satu token. `idToken` diutamakan: tanda tangan diverifikasi dengan JWKS Google, `iss` Google, `aud` ∈ `GOOGLE_CLIENT_IDS` (env server).
+- `accessToken` (cadangan): `tokeninfo` Google, `aud`/`azp` ∈ `GOOGLE_CLIENT_IDS`, profil dari `userinfo`.
+- `email_verified` wajib `true`. Penautan memakai `sub` (tabel `oauth_identities`): `sub` tertaut → akun itu; email sudah terdaftar
+  (akun password) → ditautkan; email tertaut ke `sub` lain → `409`; belum ada → akun baru tanpa password (Calon Sahabat, free).
 
-`200`
+`200` (akun lama) / `201` (akun baru)
 ```json
-{ "data": { "token": "2|xyz…", "user": { "...User" } }, "user": { "...User" } }
+{ "data": { "token": "…", "user": { "...User", "authProvider": "google", "hasPassword": false }, "isNewUser": true } }
 ```
-> `user` di root dipertahankan sementara karena `userProvider.ts` membaca `payload.user ?? payload.data`. Setelah app diperbarui, cukup `data`.
-> Catatan: header `Authorization` di endpoint ini berisi token **Google**, bukan token app.
+Error: `400` token kosong · `401` token tidak sah/kedaluwarsa/email belum terverifikasi · `403` akun pending/suspended · `409` konflik penautan · `503` `GOOGLE_CLIENT_IDS` belum diisi / Google tidak terjangkau.
 
 ### 1.4 `POST /auth/logout` — Auth
 Mencabut token saat ini. `204`.
@@ -344,7 +346,7 @@ Ganti password dari dalam app.
 ```json
 { "currentPassword": "…", "password": "…", "passwordConfirmation": "…" }
 ```
-`200`. (Fase 2: akun Google tanpa password boleh set password pertama tanpa `currentPassword`.)
+`200`. Akun Google tanpa password (`hasPassword: false`) boleh set password pertama tanpa `currentPassword`.
 
 ---
 
@@ -391,7 +393,7 @@ Mengisi kartu statistik profil (sekarang hardcoded 0).
 ```
 
 ### 2.6 `DELETE /me` — Auth
-Hapus akun (wajib untuk kebijakan Google Play). Body `{ "password": "…" }` (akun password) atau `{ "confirm": "HAPUS" }` (akun Google).
+Hapus akun (wajib untuk kebijakan Google Play). Body `{ "password": "…" }` (akun password) atau `{ "confirmation": "HAPUS" }` (akun Google tanpa password).
 Soft-delete + anonimisasi konten. `204`.
 
 ---
@@ -850,6 +852,19 @@ Angka likes/komentar palsu dihapus (atau hanya diisi bila sinkron API).
 `{ "data": [ { "id": 1, "title", "subtitle", "description", "icon" } ] }`. App tetap punya fallback bawaan (onboarding harus jalan offline).
 
 ---
+
+## 14b. Kisah, Kuis NAS, Buku, Grup Ibadah
+Konten fitur dari repo `NASUHA_mobile`, dikelola admin lewat CMS (`stories`, `quiz-questions`, `books`, `worship-groups`).
+
+| Endpoint | Akses | Keterangan |
+|---|---|---|
+| `GET /stories?category=rasul\|nabi\|sahabat` | Public | Daftar kisah tanpa `body` |
+| `GET /stories/{id}` | Public | Kisah lengkap (`body`) |
+| `GET /quiz-questions` | Public | `{ id, category, question, choices[], answer, explanation }`; `answer` selalu salah satu `choices` (CHECK di DB) |
+| `GET /books` | Public | `{ id, title, coverTitle, coverCaption, meta, description, coverImage, url(https) }` |
+| `GET /worship-groups` | Public (token opsional) | `{ id, name, description, schedule, icon, color, reminderKey, memberCount, joined }` |
+| `POST /worship-groups/{id}/join` | Auth | Idempoten; app lalu mengaktifkan pengingat lokal `reminderKey` (Tahajud/Dhuha/Taubat) |
+| `DELETE /worship-groups/{id}/join` | Auth | Keluar grup; app mematikan pengingat `reminderKey` |
 
 ## 15. Asisten Anas
 

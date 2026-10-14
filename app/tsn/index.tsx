@@ -17,7 +17,7 @@ import { ShimmerGold } from '../../components/ui/ShimmerGold';
 import { useApiQuery } from '../../hooks/useApiQuery';
 import { contentApi, eventApi } from '../../services/nasjakApi';
 
-const LOGO_KAWANATA = require('../../assets/images/logo-kawanata.png');
+const LOGO_NASUHA = require('../../assets/images/logo NASUHA.png');
 
 function TSNScreen() {
   const theme = useAppStore((s) => s.theme);
@@ -41,7 +41,7 @@ function TSNScreen() {
         <Pressable onPress={() => router.back()} hitSlop={12} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </Pressable>
-        <Image source={LOGO_KAWANATA} style={styles.heroLogo} resizeMode="contain" />
+        <Image source={LOGO_NASUHA} style={styles.heroLogo} resizeMode="contain" />
         <Text style={styles.heroTitle}>{info.title}</Text>
         <Text style={styles.heroSub}>{info.subtitle}</Text>
       </LinearGradient>

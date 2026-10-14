@@ -11,6 +11,7 @@ import {
   ScrollView,
   ActivityIndicator,
   RefreshControl,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
@@ -33,6 +34,7 @@ const STATUS_LABELS: Record<LapakProduct['status'], string> = { pending: 'Menung
 
 type CmsTab = 'users' | 'lapak' | 'events' | 'registrations' | 'membership';
 type LapakFilter = 'semua' | 'pending' | 'approved' | 'rejected';
+type UserRoleFilter = 'semua' | User['role'];
 type EventFilter = 'semua' | 'published' | 'draft' | 'cancelled';
 const EVENT_STATUS_COLORS: Record<string, string> = { published: '#2EC4B6', draft: '#FFB347', cancelled: '#FF6B6B' };
 const EVENT_STATUS_LABELS: Record<string, string> = { published: 'Published', draft: 'Draft', cancelled: 'Dibatalkan' };
@@ -306,9 +308,13 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
   const isSuperAdmin = user.role === 'super_admin';
   const fallbackPlans = useAppStore((s) => s.membershipPlans);
 
+  const { width } = useWindowDimensions();
+  // Layar lebar (tablet/web): sidebar navigasi; ponsel: tab grid saja.
+  const isCompact = width < 720;
   const [activeTab, setActiveTab] = useState<CmsTab>('users');
   const [search, setSearch] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('semua');
   const [lapakFilter, setLapakFilter] = useState<LapakFilter>('semua');
   const [eventFilter, setEventFilter] = useState<EventFilter>('semua');
 
@@ -532,7 +538,7 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
   }), [registrations]);
 
   const tabs: { id: CmsTab; label: string; icon: React.ComponentProps<typeof Ionicons>['name']; count: number }[] = [
-    { id: 'users', label: 'Users', icon: 'people', count: userStats.total },
+    { id: 'users', label: 'Daftar User', icon: 'people', count: userStats.total },
     { id: 'lapak', label: 'Lapak', icon: 'storefront', count: dashboard?.lapak.pending ?? productStats.pending },
     { id: 'events', label: 'Events', icon: 'calendar', count: dashboard?.events.upcoming ?? eventStats.published },
     { id: 'registrations', label: 'Daftar', icon: 'clipboard', count: dashboard?.registrations.pending ?? registrationStats.registered },
@@ -545,6 +551,28 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
     { id: 'approved', label: 'Approved', count: productStats.approved },
     { id: 'rejected', label: 'Rejected', count: productStats.rejected },
   ];
+  const countRole = (role: User['role']) => members.filter((member) => member.role === role).length;
+  const userRoleFilters: { id: UserRoleFilter; label: string; count: number; color: string }[] = [
+    { id: 'semua', label: 'Semua User', count: members.length, color: colors.primary },
+    { id: 'super_admin', label: 'Super Admin', count: countRole('super_admin'), color: ROLE_COLORS.super_admin },
+    { id: 'admin', label: 'Admin', count: countRole('admin'), color: ROLE_COLORS.admin },
+    { id: 'ustadz', label: 'Ustadz', count: countRole('ustadz'), color: ROLE_COLORS.ustadz },
+    { id: 'sahabat', label: 'Sahabat NASUHA', count: countRole('sahabat'), color: ROLE_COLORS.sahabat },
+    { id: 'calon_sahabat', label: 'Calon Sahabat', count: countRole('calon_sahabat'), color: ROLE_COLORS.calon_sahabat },
+  ];
+  const filteredMembers = userRoleFilter === 'semua' ? members : members.filter((member) => member.role === userRoleFilter);
+  const activeTabMeta = tabs.find((tab) => tab.id === activeTab) || tabs[0];
+  const activeTabDescription: Record<CmsTab, string> = {
+    users: 'Pantau akses dan aktivitas member',
+    lapak: 'Moderasi produk sebelum tampil di lapak',
+    events: 'Atur agenda dan publikasi kegiatan',
+    registrations: 'Kelola pendaftaran peserta event',
+    membership: 'Atur tier dan fitur akses member',
+  };
+  const isDenseStats = isCompact && (activeTab === 'lapak' || activeTab === 'events');
+  const statsGridStyle = [styles.statsGrid, isDenseStats && styles.statsGridCompact];
+  const statItemStyle = [styles.statItem, isDenseStats && styles.statItemCompact];
+  const listStyle = [styles.list, isCompact && styles.listCompact];
 
   const refreshControl = <RefreshControl refreshing={refreshing} onRefresh={() => reload('refresh')} tintColor={colors.primary} />;
   const searchPlaceholder = activeTab === 'users' ? 'Cari nama, email, HP...'
@@ -554,56 +582,90 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
+      <View style={[styles.dashboardShell, isCompact && styles.dashboardShellCompact]}>
+        {!isCompact && (
+          <View style={styles.sidebar}>
+            <View>
+              <View style={styles.brandBlock}>
+                <View style={styles.brandMark}><Ionicons name="shield-checkmark" size={22} color="#fff" /></View>
+                <View>
+                  <Text style={styles.brandTitle}>NASUHA</Text>
+                  <Text style={styles.brandSubtitle}>Admin Panel</Text>
+                </View>
+              </View>
+              <View style={styles.navGroup}>
+                {tabs.map((item) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => { setActiveTab(item.id); setSearch(''); setDebouncedSearch(''); }}
+                    style={[styles.navItem, activeTab === item.id && styles.navItemActive]}
+                  >
+                    <Ionicons name={`${item.icon}-outline` as any} size={18} color={activeTab === item.id ? '#fff' : '#cbd5e1'} />
+                    <Text style={[styles.navText, activeTab === item.id && styles.navTextActive]}>{item.label}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <Pressable onPress={() => router.replace('/(tabs)' as any)} style={styles.exitButton}>
+              <Ionicons name="log-out-outline" size={18} color="#fff" />
+              <Text style={styles.exitText}>Kembali ke App</Text>
+            </Pressable>
+          </View>
+        )}
+
+        <View style={styles.mainContent}>
       {/* Header */}
-      <LinearGradient colors={['#FF6B6B', '#C44569']} style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+      <LinearGradient colors={['#F05D6C', '#B83F68']} style={[styles.header, isCompact && styles.headerCompact]}>
+        <Pressable onPress={() => router.back()} hitSlop={12} accessibilityLabel="Kembali">
           <Ionicons name="arrow-back" size={24} color="#FFF" />
         </Pressable>
-        <View style={{ flex: 1, alignItems: 'center' }}>
-          <Text style={styles.headerTitle}>CMS Admin Panel</Text>
-          <Text style={styles.headerSub}>{ROLE_LABELS[user.role]} · NASUHA</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.headerEyebrow}>AREA KERJA ADMIN · {ROLE_LABELS[user.role].toUpperCase()}</Text>
+          <Text style={styles.headerTitle} numberOfLines={1}>{activeTabMeta.label}</Text>
+          <Text style={styles.headerSub} numberOfLines={1}>{activeTabDescription[activeTab]}</Text>
         </View>
-        <Pressable onPress={() => reload('refresh')} hitSlop={12}>
-          <Ionicons name="refresh" size={24} color="#FFF" />
+        <Pressable onPress={() => reload('refresh')} hitSlop={12} style={styles.headerBadge} accessibilityLabel="Muat ulang">
+          <Ionicons name="refresh" size={18} color="#FFF" />
         </Pressable>
       </LinearGradient>
 
       {/* Stats */}
-      <View style={[styles.statsCard, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.md]}>
+      <View style={[styles.statsCard, isCompact && styles.statsCardCompact, { backgroundColor: colors.card, borderColor: colors.border }, Shadows.md]}>
         <ShimmerGold style={styles.shimmer} />
         {activeTab === 'users' || activeTab === 'membership' ? (
-          <View style={styles.statsGrid}>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: colors.primary }]}>{userStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total User</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FF6B6B' }]}>{userStats.admins}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Admin</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: colors.success }]}>{userStats.active}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Aktif</Text></View>
+          <View style={statsGridStyle}>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: colors.primary }]}>{userStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total User</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#FF6B6B' }]}>{userStats.admins}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Admin</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: colors.success }]}>{userStats.active}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Aktif</Text></View>
           </View>
         ) : activeTab === 'lapak' ? (
-          <View style={styles.statsGrid}>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: colors.primary }]}>{productStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FFB347' }]}>{productStats.pending}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pending</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#2EC4B6' }]}>{productStats.approved}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Approved</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FF6B6B' }]}>{productStats.rejected}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Rejected</Text></View>
+          <View style={statsGridStyle}>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: colors.primary }]}>{productStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#FFB347' }]}>{productStats.pending}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pending</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#2EC4B6' }]}>{productStats.approved}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Approved</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#FF6B6B' }]}>{productStats.rejected}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Rejected</Text></View>
           </View>
         ) : activeTab === 'events' ? (
-          <View style={styles.statsGrid}>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: colors.primary }]}>{eventStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#2EC4B6' }]}>{eventStats.published}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Published</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FFB347' }]}>{eventStats.draft}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Draft</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FF6B6B' }]}>{eventStats.cancelled}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Dibatalkan</Text></View>
+          <View style={statsGridStyle}>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: colors.primary }]}>{eventStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Total</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#2EC4B6' }]}>{eventStats.published}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Published</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#FFB347' }]}>{eventStats.draft}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Draft</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#FF6B6B' }]}>{eventStats.cancelled}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Dibatalkan</Text></View>
           </View>
         ) : (
-          <View style={styles.statsGrid}>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: colors.primary }]}>{registrationStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Aktif</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#2EC4B6' }]}>{registrationStats.confirmed}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Konfirmasi</Text></View>
-            <View style={styles.statItem}><Text style={[styles.statVal, { color: '#FFB347' }]}>{registrationStats.registered}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pending</Text></View>
+          <View style={statsGridStyle}>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: colors.primary }]}>{registrationStats.total}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Aktif</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#2EC4B6' }]}>{registrationStats.confirmed}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Konfirmasi</Text></View>
+            <View style={statItemStyle}><Text style={[styles.statVal, { color: '#FFB347' }]}>{registrationStats.registered}</Text><Text style={[styles.statLabel, { color: colors.textSecondary }]}>Pending</Text></View>
           </View>
         )}
       </View>
 
       {/* Tabs */}
-      <View style={styles.tabGrid}>
+      {isCompact && (
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={[styles.tabGrid, styles.tabGridCompact]}>
         {tabs.map((t) => (
-          <Pressable key={t.id} onPress={() => { setActiveTab(t.id); setSearch(''); setDebouncedSearch(''); }} style={[styles.tab, { backgroundColor: activeTab === t.id ? colors.primary + '12' : colors.surface, borderColor: activeTab === t.id ? colors.primary : colors.border }]}>
+          <Pressable key={t.id} onPress={() => { setActiveTab(t.id); setSearch(''); setDebouncedSearch(''); }} style={[styles.tab, styles.tabCompact, { backgroundColor: activeTab === t.id ? colors.primary + '12' : colors.surface, borderColor: activeTab === t.id ? colors.primary : colors.border }]}>
             <Ionicons name={t.icon as any} size={18} color={activeTab === t.id ? colors.primary : colors.textMuted} />
             <Text style={[styles.tabLabel, { color: activeTab === t.id ? colors.primary : colors.textMuted }]} numberOfLines={1}>{t.label}</Text>
             <View style={[styles.tabCount, { backgroundColor: activeTab === t.id ? colors.primary : colors.textMuted + '30' }]}>
@@ -611,11 +673,12 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
             </View>
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
+      )}
 
       {/* Search */}
       {activeTab !== 'membership' && (
-        <View style={{ paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm }}>
+        <View style={[styles.searchSection, isCompact && styles.searchSectionCompact]}>
           <View style={[styles.searchBox, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <Ionicons name="search-outline" size={18} color={colors.textMuted} />
             <TextInput
@@ -630,6 +693,21 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
             {search.length > 0 && <Pressable onPress={() => setSearch('')}><Ionicons name="close-circle" size={18} color={colors.textMuted} /></Pressable>}
           </View>
         </View>
+      )}
+
+      {/* Role Filters */}
+      {activeTab === 'users' && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.filterScroll} contentContainerStyle={styles.filterRow}>
+          {userRoleFilters.map((filter) => (
+            <Pressable
+              key={filter.id}
+              onPress={() => setUserRoleFilter(filter.id)}
+              style={[styles.filterChip, { backgroundColor: userRoleFilter === filter.id ? filter.color : colors.surface, borderColor: userRoleFilter === filter.id ? filter.color : colors.border }]}
+            >
+              <Text style={[styles.filterText, { color: userRoleFilter === filter.id ? '#FFF' : colors.textSecondary }]}>{filter.label} ({filter.count})</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
       )}
 
       {/* Lapak Filters */}
@@ -667,16 +745,16 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
       {/* Content */}
       {activeTab === 'users' ? (
         <FlatList
-          data={members}
+          data={filteredMembers}
           keyExtractor={(item) => item.id}
           renderItem={({ item }) => (
             <MemberCard item={item} isCurrentUser={item.id === user.id} currentUserRole={user.role} colors={colors} membershipPlans={plans.length ? plans : fallbackPlans}
               onChangeRole={handleChangeRole} onToggleActive={handleToggleActive} onRemove={handleRemoveMember} onToggleFeature={handleToggleMemberFeature} />
           )}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={listStyle}
           refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
-          ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="people-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{debouncedSearch ? 'User tidak ditemukan' : 'Belum ada user'}</Text></View>}
+          ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="people-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{debouncedSearch ? 'User tidak ditemukan' : userRoleFilter === 'semua' ? 'Belum ada user' : `Belum ada ${ROLE_LABELS[userRoleFilter]}`}</Text></View>}
         />
       ) : activeTab === 'lapak' ? (
         <FlatList
@@ -686,7 +764,7 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
             <ProductModCard item={item} colors={colors}
               onApprove={handleApproveProduct} onReject={handleRejectProduct} onDelete={handleDeleteProduct} />
           )}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={listStyle}
           refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="bag-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>{lapakFilter === 'semua' ? 'Belum ada dagangan' : `Tidak ada dagangan ${STATUS_LABELS[lapakFilter as LapakProduct['status']] || ''}`}</Text></View>}
@@ -705,7 +783,7 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
               ])}
               onDelete={handleDeleteEvent} />
           )}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={listStyle}
           refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="calendar-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>Belum ada event. Tambah event baru!</Text></View>}
@@ -717,7 +795,7 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
         <FlatList
           data={registrations}
           keyExtractor={(item) => item.id}
-          contentContainerStyle={styles.list}
+          contentContainerStyle={listStyle}
           refreshControl={refreshControl}
           showsVerticalScrollIndicator={false}
           renderItem={({ item: reg }) => (
@@ -761,6 +839,8 @@ function AdminPanel({ user, colors }: { user: User; colors: typeof Colors.light 
           ListEmptyComponent={loading ? null : <View style={styles.empty}><Ionicons name="clipboard-outline" size={48} color={colors.textMuted} /><Text style={[styles.emptyText, { color: colors.textSecondary }]}>Belum ada pendaftaran event</Text></View>}
         />
       )}
+        </View>
+      </View>
     </View>
   );
 }
@@ -769,9 +849,36 @@ export default memo(AdminScreen);
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  dashboardShell: { flex: 1, flexDirection: 'row' },
+  dashboardShellCompact: { flexDirection: 'column' },
+  sidebar: { width: 240, backgroundColor: '#111827', paddingTop: 56, paddingBottom: 24, paddingHorizontal: 16, justifyContent: 'space-between' },
+  brandBlock: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingHorizontal: 8, marginBottom: 24 },
+  brandMark: { width: 42, height: 42, borderRadius: 12, backgroundColor: '#FF6B6B', alignItems: 'center', justifyContent: 'center' },
+  brandTitle: { color: '#fff', fontSize: 20, fontWeight: '800' },
+  brandSubtitle: { color: '#cbd5e1', fontSize: 11, marginTop: 2 },
+  navGroup: { gap: 8 },
+  navItem: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingVertical: 12, borderRadius: 12 },
+  navItemActive: { backgroundColor: '#FF6B6B' },
+  navText: { color: '#cbd5e1', fontSize: 14, fontWeight: '600' },
+  navTextActive: { color: '#fff' },
+  exitButton: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#1f2937', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 10, borderWidth: 1, borderColor: '#374151' },
+  exitText: { color: '#fff', fontWeight: '700' },
+  mainContent: { flex: 1 },
   header: { flexDirection: 'row', alignItems: 'center', paddingTop: 56, paddingHorizontal: Spacing.lg, paddingBottom: Spacing.lg },
-  headerTitle: { color: '#FFF', fontSize: FontSize.xl, fontWeight: '800' },
+  headerCompact: { paddingHorizontal: Spacing.md, paddingBottom: 18 },
+  headerCopy: { flex: 1, alignItems: 'flex-start', marginLeft: Spacing.md },
+  headerEyebrow: { color: 'rgba(255,255,255,0.72)', fontSize: 9, fontWeight: '800', letterSpacing: 1.2 },
+  headerTitle: { color: '#FFF', fontSize: FontSize.xl, fontWeight: '900', marginTop: 2 },
   headerSub: { color: 'rgba(255,255,255,0.8)', fontSize: FontSize.sm, marginTop: 2 },
+  headerBadge: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.16)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.24)' },
+  statsCardCompact: { marginHorizontal: Spacing.md, marginTop: -Spacing.sm },
+  statsGridCompact: { flexWrap: 'wrap', padding: Spacing.sm },
+  statItemCompact: { width: '50%', flexBasis: '50%', flexGrow: 0, flexShrink: 0, paddingVertical: Spacing.sm },
+  tabGridCompact: { flexWrap: 'nowrap', marginHorizontal: Spacing.md, paddingRight: Spacing.md },
+  tabCompact: { width: 92, minHeight: 72, flexGrow: 0 },
+  searchSection: { paddingHorizontal: Spacing.lg, paddingVertical: Spacing.sm },
+  searchSectionCompact: { paddingHorizontal: Spacing.md, paddingTop: Spacing.md, paddingBottom: Spacing.sm },
+  listCompact: { paddingHorizontal: Spacing.md, paddingTop: Spacing.sm },
   statsCard: { marginHorizontal: Spacing.lg, marginTop: -Spacing.md, borderRadius: BorderRadius.lg, overflow: 'hidden', borderWidth: StyleSheet.hairlineWidth },
   shimmer: { height: 3 },
   statsGrid: { flexDirection: 'row', padding: Spacing.md },

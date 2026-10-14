@@ -3,7 +3,7 @@ import type {
   AppConfig, AppNotification, Article, ArticleSummary, Doa, Event, EventRegistration, HomeData, InfaqProgram, Korda,
   LapakProduct, LapakProductInput, MeStats, MembershipPlan, Motivasi, MotivasiCategory, NotificationSettings, PrayerLocation,
   Program, Question, Answer, References, RiyadhohDoc, RiyadhohItem, SocialLink, SocialPost, Testimonial, User, UserRole,
-  MembershipType,
+  MembershipType, GoogleCredential, Book, QuizQuestion, Story, StoryCategory, StorySummary, WorshipGroup,
 } from '../types';
 import { api, apiRequest, uploadImage } from './api';
 
@@ -17,6 +17,8 @@ export const authApi = {
     api.post<AuthPayload>('/auth/login', { identifier, password, deviceName: 'nasjak-app' }),
   register: (input: { name: string; email: string; password: string; phone?: string }) =>
     api.post<AuthPayload>('/auth/register', { ...input, deviceName: 'nasjak-app' }),
+  google: (credential: GoogleCredential) =>
+    api.post<AuthPayload & { isNewUser: boolean }>('/auth/google', { ...credential, deviceName: 'nasjak-app' }),
   logout: () => api.post<void>('/auth/logout'),
   me: () => api.get<User>('/auth/me'),
   changePassword: (currentPassword: string, password: string) =>
@@ -50,7 +52,8 @@ export const meApi = {
   uploadAvatar: (uri: string) => uploadImage<{ avatar: string }>('/me/avatar', uri),
   deleteAvatar: () => api.delete('/me/avatar'),
   stats: () => api.get<MeStats>('/me/stats'),
-  deleteAccount: (password: string) => api.delete('/me', { password }),
+  /** Akun dengan password: kirim `password`. Akun Google tanpa password: `confirmation: 'HAPUS'`. */
+  deleteAccount: (input: { password?: string; confirmation?: 'HAPUS' }) => api.delete('/me', input),
   preferences: () => api.get<UserPreferences>('/me/preferences'),
   savePreferences: (input: UserPreferences) => api.put<UserPreferences>('/me/preferences', input),
   registerDevice: (expoPushToken: string, platform: string) => api.post<void>('/me/devices', { expoPushToken, platform }),
@@ -216,4 +219,14 @@ export const adminApi = {
     apiRequest<EventRegistration[]>('GET', '/admin/event-registrations', { query }),
   updateRegistration: (id: string, patch: { status?: 'registered' | 'confirmed' | 'cancelled'; attended?: boolean }) =>
     api.patch<EventRegistration>(`/admin/event-registrations/${id}`, patch),
+};
+
+export const featureApi = {
+  stories: (category?: StoryCategory) => api.get<StorySummary[]>('/stories', category ? { category } : undefined),
+  story: (id: string) => api.get<Story>(`/stories/${id}`),
+  quizQuestions: () => api.get<QuizQuestion[]>('/quiz-questions'),
+  books: () => api.get<Book[]>('/books'),
+  worshipGroups: () => api.get<WorshipGroup[]>('/worship-groups'),
+  joinWorshipGroup: (id: string) => api.post<WorshipGroup>(`/worship-groups/${id}/join`),
+  leaveWorshipGroup: (id: string) => api.delete<WorshipGroup>(`/worship-groups/${id}/join`),
 };

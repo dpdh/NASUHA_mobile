@@ -31,6 +31,10 @@ const MENU_ITEMS: MenuItem[] = [
   { id: 'motivasi', icon: 'bulb', label: 'Motivasi', sub: 'Inspirasi harian', route: '/motivasi/', gradient: ['#D4A853', '#B8860B'] },
   { id: 'artikel', icon: 'newspaper', label: 'Artikel', sub: 'Edukasi & ilmu', route: '/artikel/', gradient: ['#FF6B6B', '#C44569'] },
   { id: 'doa', icon: 'heart', label: "Do'a Harian", sub: 'Doa harian & utang', route: '/doa/', gradient: ['#168AAD', '#52B69A'] },
+  { id: 'buku', icon: 'library-outline', label: 'Buku NASUHA', sub: 'Koleksi buku digital', route: '/buku/', gradient: ['#8B5E3C', '#C08A5C'] },
+  { id: 'rasul', icon: 'sparkles', label: 'Kisah Rasulullah SAW', sub: 'Teladan dari Rasulullah', route: '/kisah/', gradient: ['#2E8B83', '#185D59'] },
+  { id: 'nabi', icon: 'sunny', label: 'Kisah Nabi', sub: 'Pelajaran para Nabi', route: '/kisah/', gradient: ['#B9822B', '#7B5117'] },
+  { id: 'sahabat', icon: 'people', label: 'Kisah Sahabat Nabi', sub: 'Jejak generasi terbaik', route: '/kisah/', gradient: ['#4977A4', '#294D70'] },
 ];
 
 const MenuCard = memo(({ item }: { item: MenuItem }) => (
@@ -64,7 +68,7 @@ function BelajarScreen() {
           <View style={{ flex: 1 }}>
             <Text style={[styles.title, { color: colors.text }]}>Belajar</Text>
             <Text style={[styles.subtitle, { color: colors.textSecondary }]}>
-              Akses Al-Qur'an, Hadis, Motivasi & Edukasi
+              Akses Al-Qur&apos;an, Hadis, Motivasi &amp; Edukasi
             </Text>
           </View>
           <Image source={LOGO_SPLASH} style={styles.headerLogo} resizeMode="contain" />

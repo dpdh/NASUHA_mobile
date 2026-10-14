@@ -6,8 +6,9 @@ export interface User {
   id: string;
   email: string;
   name: string;
-  googleId?: string;
   authProvider?: 'password' | 'google';
+  /** false untuk akun yang daftar lewat Google dan belum membuat password. */
+  hasPassword?: boolean;
   phone?: string | null;
   avatar?: string | null;
   role: UserRole;
@@ -31,6 +32,12 @@ export interface User {
   membershipType?: MembershipType;
   membershipFeatures?: Record<string, boolean>;
   featureOverrides?: Record<string, boolean>;
+}
+
+/** Token hasil Sign in with Google; diverifikasi server (idToken diutamakan). */
+export interface GoogleCredential {
+  idToken?: string;
+  accessToken?: string;
 }
 
 export interface QuranSurah {
@@ -98,6 +105,10 @@ export interface NotificationSettings {
   dzikirReminderEnabled: boolean;
   shalawatReminderEnabled: boolean;
   spiritualReminderEnabled: boolean;
+  debtReminderEnabled: boolean;
+  taubatReminderEnabled: boolean;
+  dhuhaReminderEnabled: boolean;
+  tahajudCallEnabled: boolean;
   riyadhohHour: number;
   riyadhohMinute: number;
 }
@@ -436,4 +447,53 @@ export interface AppState {
   references: References | null;
   notificationSettings: NotificationSettings;
   prayerLocation: PrayerLocation | null;
+}
+
+// ---------------- Kisah, Kuis NAS, Buku, Grup Ibadah (dari server) ----------------
+export type StoryCategory = 'rasul' | 'nabi' | 'sahabat';
+
+export interface StorySummary {
+  id: string;
+  category: StoryCategory;
+  title: string;
+  person: string;
+  summary: string;
+}
+
+export interface Story extends StorySummary {
+  body: string;
+}
+
+export interface QuizQuestion {
+  id: string;
+  category: string;
+  question: string;
+  choices: string[];
+  answer: string;
+  explanation: string;
+}
+
+export interface Book {
+  id: string;
+  title: string;
+  coverTitle: string;
+  coverCaption: string;
+  meta: string;
+  description: string;
+  coverImage: string | null;
+  url: string;
+}
+
+export type ReminderSettingKey = 'tahajudCallEnabled' | 'dhuhaReminderEnabled' | 'taubatReminderEnabled';
+
+export interface WorshipGroup {
+  id: string;
+  name: string;
+  description: string;
+  schedule: string;
+  icon: string;
+  color: string;
+  reminderKey: ReminderSettingKey | null;
+  memberCount: number;
+  joined: boolean;
 }

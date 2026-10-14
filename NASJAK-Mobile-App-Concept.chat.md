@@ -1,8 +1,8 @@
-User: PROMPT PEMBUATAN MOBILE APP — NASJAK APP
+# PROMPT PEMBUATAN MOBILE APP — NASJAK APP
 
 Buat sebuah mobile application modern bernama “NASJAK APP” (Nasuha Jakarta App) sebagai platform digital resmi komunitas NASUHA Jakarta, yang menjadi pusat informasi, edukasi, ibadah, motivasi, komunitas, dan kegiatan dakwah bagi Sahabat NASUHA.
 
-1. KONSEP UTAMA
+## 1. KONSEP UTAMA
 
 Nama aplikasi:
 NASJAK APP
@@ -27,7 +27,7 @@ Islamic • Modern • Clean • Professional • Warm • Inspirational • Com
 
 ⸻
 
-2. DESIGN SYSTEM
+## 2. DESIGN SYSTEM
 
 Gunakan desain mobile-first dengan tampilan premium dan modern.
 
@@ -56,7 +56,7 @@ Islamic Lifestyle App + Community App + Personal Growth App
 
 ⸻
 
-3. SPLASH SCREEN
+## 3. SPLASH SCREEN
 
 Buat splash screen dengan:
 
@@ -76,7 +76,7 @@ Tambahkan animasi logo yang elegan selama 2–3 detik.
 
 ⸻
 
-4. ONBOARDING
+## 4. ONBOARDING
 
 Buat 3–4 halaman onboarding.
 
@@ -118,7 +118,7 @@ MULAI PERJALANAN
 
 ⸻
 
-5. LOGIN / REGISTER
+## 5. LOGIN / REGISTER
 
 Sediakan:
 
@@ -138,7 +138,7 @@ Tambahkan:
 
 ⸻
 
-6. HOME DASHBOARD
+## 6. HOME DASHBOARD
 
 Home menjadi halaman utama aplikasi.
 
@@ -185,7 +185,7 @@ Buat grid 2 x 4:
 
 ⸻
 
-7. FITUR AL-QUR’AN
+## 7. FITUR AL-QUR’AN
 
 Buat halaman Al-Qur’an modern.
 
@@ -217,7 +217,7 @@ LANJUTKAN MEMBACA
 
 ⸻
 
-8. FITUR HADIS
+## 8. FITUR HADIS
 
 Buat halaman:
 
@@ -256,7 +256,7 @@ Gunakan sumber hadis yang terpercaya dan tampilkan referensinya dengan jelas.
 
 ⸻
 
-9. PERSONAL RIYADHOH / IBADAH CHECKLIST
+## 9. PERSONAL RIYADHOH / IBADAH CHECKLIST
 
 Buat fitur utama:
 
@@ -322,7 +322,7 @@ Data ibadah bersifat pribadi dan hanya dapat dilihat pengguna kecuali pengguna s
 
 ⸻
 
-10. MOTIVASI
+## 10. MOTIVASI
 
 Buat halaman:
 
@@ -356,7 +356,7 @@ Motivasi Hari Ini
 
 ⸻
 
-11. TESTIMONI SAHABAT NASUHA
+## 11. TESTIMONI SAHABAT NASUHA
 
 Buat halaman:
 
@@ -404,7 +404,7 @@ Pastikan testimonial menggunakan persetujuan dari pemilik cerita dan tidak menam
 
 ⸻
 
-12. EVENT NASUHA
+## 12. EVENT NASUHA
 
 Buat halaman:
 
@@ -439,7 +439,7 @@ DAFTAR
 
 ⸻
 
-13. TEMU SOLUSI NASUHA — TSN
+## 13. TEMU SOLUSI NASUHA — TSN
 
 Buat landing page khusus:
 
@@ -470,7 +470,7 @@ DAFTAR TSN
 
 ⸻
 
-14. LANGKAH BEBAS UTANG — LBU
+## 14. LANGKAH BEBAS UTANG — LBU
 
 Buat halaman khusus:
 
@@ -521,7 +521,7 @@ DAFTAR LBU
 
 ⸻
 
-15. MEDIA SOSIAL NASUHA
+## 15. MEDIA SOSIAL NASUHA
 
 Buat halaman:
 
@@ -553,7 +553,7 @@ Tambahkan feed konten terbaru jika API/platform integration tersedia.
 
 ⸻
 
-16. NOTIFICATION CENTER
+## 16. NOTIFICATION CENTER
 
 Buat fitur:
 
@@ -578,7 +578,7 @@ Sediakan:
 
 ⸻
 
-17. PROFILE
+## 17. PROFILE
 
 Halaman:
 
@@ -618,7 +618,7 @@ Menu:
 
 ⸻
 
-18. SEARCH GLOBAL
+## 18. SEARCH GLOBAL
 
 Tambahkan global search.
 
@@ -639,7 +639,7 @@ Gunakan search bar:
 
 ⸻
 
-19. BOTTOM NAVIGATION
+## 19. BOTTOM NAVIGATION
 
 Gunakan 5 menu utama:
 
@@ -662,7 +662,7 @@ Pada menu Belajar, tampilkan:
 
 ⸻
 
-20. ADMIN DASHBOARD
+## 20. ADMIN DASHBOARD
 
 Selain mobile app, buat konsep backend/admin dashboard.
 
@@ -714,7 +714,7 @@ Admin dapat mengirim push notification.
 
 ⸻
 
-21. DATABASE STRUCTURE
+## 21. DATABASE STRUCTURE
 
 Gunakan database terstruktur dengan tabel:
 
@@ -760,7 +760,7 @@ Admin
 
 ⸻
 
-22. SECURITY & PRIVACY
+## 22. SECURITY & PRIVACY
 
 Implementasikan:
 
@@ -777,7 +777,7 @@ Data Riyadhoh pribadi tidak boleh dapat diakses pengguna lain.
 
 ⸻
 
-23. UX PRINCIPLES
+## 23. UX PRINCIPLES
 
 Aplikasi harus:
 
@@ -804,7 +804,7 @@ Ketika semua target selesai:
 
 ⸻
 
-24. PERSONALIZATION
+## 24. PERSONALIZATION
 
 Pada Home tampilkan konten dinamis:
 
@@ -826,7 +826,7 @@ Lanjutkan Membaca Al-Qur’an
 
 ⸻
 
-25. CTA UTAMA
+## 25. CTA UTAMA
 
 Gunakan CTA yang konsisten:
 
@@ -850,7 +850,7 @@ IKUTI NASUHA
 
 ⸻
 
-26. HOME SCREEN FINAL LAYOUT
+## 26. HOME SCREEN FINAL LAYOUT
 
 Urutan halaman Home:
 
@@ -868,7 +868,7 @@ Urutan halaman Home:
 
 ⸻
 
-27. BRAND MESSAGE
+## 27. BRAND MESSAGE
 
 Gunakan filosofi utama aplikasi:
 
@@ -889,7 +889,7 @@ Hindari tone yang menakut-nakuti atau menyudutkan orang yang sedang memiliki uta
 
 ⸻
 
-28. TEKNOLOGI YANG DIREKOMENDASIKAN
+## 28. TEKNOLOGI YANG DIREKOMENDASIKAN
 
 Buat aplikasi cross-platform:
 
@@ -929,7 +929,7 @@ NASUHA APP — Indonesia
 
 ⸻
 
-29. OUTPUT YANG DIMINTA DARI AI APP BUILDER
+## 29. OUTPUT YANG DIMINTA DARI AI APP BUILDER
 
 Generate:
 
@@ -990,22 +990,24 @@ Saya akan mengintegrasikan kedua logo ini ke dalam desain aplikasi. Sebelum saya
 
 Asked 3 questions
 
-User: Execute the plan in aps-integration-api.plan.md<build-plan-context>
+User: Execute the plan in aps-integration-api.plan.md
+
+### Build plan context
+
 IMPORTANT: Before starting work, register the following tasks in the todo list using system_todo_write tool:
-- Setup project structure and APS auth module
-- Build upload and translation endpoints
-- Build metadata extraction pipeline
-- Build 3D viewer integration page
-- Build asset status sync endpoint
-- Create Snowflake tables and Streamlit page
+
+* Setup project structure and APS auth module
+* Build upload and translation endpoints
+* Build metadata extraction pipeline
+* Build 3D viewer integration page
+* Build asset status sync endpoint
+* Create Snowflake tables and Streamlit page
 
 CRITICAL TODO DISCIPLINE:
 (1) Mark tasks as "completed" IMMEDIATELY when finished - do not continue to new tasks without updating status
 (2) Update todo status in real-time as you work, not in batches
 (3) Work sequentially through todos - only skip ahead if implementation requires it, and explain why
 (4) Use system_todo_write with proper status values: "pending" → "in_progress" → "completed"
-</build-plan-context>
-
 : Let me read the plan file first to understand what needs to be built.
 
 Globbed for `**/*.plan.md` in `.`
@@ -1222,8 +1224,9 @@ All 6 tasks are complete. Here's what was built:
 **Project structure** (`aps_bridge/`): 14 new files created alongside the existing Three.js viewer.
 
 ### API Endpoints
+
 | Method | Path | Description |
-|--------|------|-------------|
+| ------ | ---- | ----------- |
 | `POST` | `/api/v1/models/upload` | Upload .rvt file to APS bucket + start SVF2/IFC translation |
 | `GET` | `/api/v1/models` | List all uploaded models |
 | `GET` | `/api/v1/models/{id}/status` | Poll translation progress from APS manifest |
@@ -1234,17 +1237,20 @@ All 6 tasks are complete. Here's what was built:
 | `GET` | `/viewer/{id}` | 3D viewer page with Autodesk Viewer 7.x |
 
 ### Snowflake objects created
-- **APS_MODELS** table — tracks uploaded Revit models, URNs, translation status
-- **APS_TRANSLATIONS** table — per-output-type translation records
-- **SEQ_BIM_ELEM** sequence — generates BIM element IDs for new extractions
+
+* **APS_MODELS** table — tracks uploaded Revit models, URNs, translation status
+* **APS_TRANSLATIONS** table — per-output-type translation records
+* **SEQ_BIM_ELEM** sequence — generates BIM element IDs for new extractions
 
 ### Key adaptations from plan
-- Metadata mapper aligned to actual `BIM_ELEMENTS` columns (`CATEGORY`, `FAMILY`, `TYPE` not the originally assumed names)
-- Sync router uses actual view name `V_FAILURE_RISK` (not `V_MAINTENANCE_RISK`)
-- Element-status endpoint placed under `/api/v1/models/` router to match viewer's fetch path
-- Streamlit "04 Digital Twin 3D" page updated with APS model list and viewer links
+
+* Metadata mapper aligned to actual `BIM_ELEMENTS` columns (`CATEGORY`, `FAMILY`, `TYPE` not the originally assumed names)
+* Sync router uses actual view name `V_FAILURE_RISK` (not `V_MAINTENANCE_RISK`)
+* Element-status endpoint placed under `/api/v1/models/` router to match viewer's fetch path
+* Streamlit "04 Digital Twin 3D" page updated with APS model list and viewer links
 
 ### To run
+
 ```bash
 cd aps_bridge
 pip install -r requirements.txt

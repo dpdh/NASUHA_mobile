@@ -5,7 +5,7 @@ import { authApi, contentApi, libraryApi, meApi, riyadhohApi, type ProfileInput,
 import { registerPushDevice, unregisterPushDevice } from '../services/push';
 import { readJson, remove, writeJson } from '../services/storage';
 import type {
-  AppState, ColorScheme, FeatureId, MembershipPlan, NotificationSettings, PrayerLocation, References, ThemeMode, User,
+  AppState, ColorScheme, FeatureId, GoogleCredential, MembershipPlan, NotificationSettings, PrayerLocation, References, ThemeMode, User,
 } from '../types';
 import { addDaysKey, wibDateKey } from '../utils/date';
 
@@ -27,6 +27,8 @@ interface AppActions {
   // Auth (nasjak-backend)
   login: (identifier: string, password: string) => Promise<ActionResult>;
   register: (name: string, email: string, password: string, phone?: string) => Promise<ActionResult>;
+  /** Sign in with Google: token dari Google diverifikasi server; akun dibuat otomatis bila belum ada. */
+  loginWithGoogle: (credential: GoogleCredential) => Promise<ActionResult & { isNewUser?: boolean }>;
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   hasFeature: (feature: FeatureId) => boolean;
@@ -87,6 +89,10 @@ const DEFAULT_NOTIFICATION_SETTINGS: NotificationSettings = {
   dzikirReminderEnabled: true,
   shalawatReminderEnabled: true,
   spiritualReminderEnabled: true,
+  debtReminderEnabled: true,
+  taubatReminderEnabled: true,
+  dhuhaReminderEnabled: true,
+  tahajudCallEnabled: true,
   riyadhohHour: 20,
   riyadhohMinute: 0,
 };
@@ -299,6 +305,20 @@ export const useAppStore = create<AppState & AppActions>((set, get) => ({
       // memicu error mounting Fabric di Android.
       await get().syncUserData();
       return { success: true };
+    } catch (error) {
+      return failure(error);
+    }
+  },
+
+  loginWithGoogle: async (credential) => {
+    if (!credential.idToken && !credential.accessToken) return { success: false, error: 'Token Google tidak ditemukan.' };
+    try {
+      const result = await authApi.google(credential);
+      await setToken(result.token);
+      set({ user: result.user, isOnboarded: true });
+      persist(get());
+      await get().syncUserData();
+      return { success: true, isNewUser: result.isNewUser };
     } catch (error) {
       return failure(error);
     }

@@ -2,6 +2,8 @@
 
 # dependencies
 node_modules/
+backend/data.json
+backend/data.json.tmp
 
 # Expo
 .expo/
@@ -31,7 +33,17 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+
+# editor history & local junk
+.history/
+*.log
+
+# accidental local files
+/120
+/300
+/nasuha_app_icon.png
 
 # typescript
 *.tsbuildinfo
@@ -39,3 +51,4 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+/build
