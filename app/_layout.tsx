@@ -1,10 +1,9 @@
 import { useFonts } from 'expo-font';
 import { Stack, router, useSegments } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { Platform, Pressable, StyleSheet, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import AlertHost from '../components/AlertHost';
 import { getColors } from '../constants/theme';
 import { getNotifications } from '../services/nativeModules';
@@ -17,23 +16,6 @@ const Notifications = getNotifications();
 // Catatan: jangan set initialRouteName = 'onboarding'. Itu membuat layar onboarding (dengan banyak
 // animasi loop native) selalu tertinggal di bawah stack dan membuat UI thread Android tersendat (ANR).
 // Redirect ke onboarding untuk user baru sudah ditangani effect di bawah.
-
-function FloatingBackButton({ visible, color }: { visible: boolean; color: string }) {
-  if (!visible) return null;
-
-  return (
-    <View pointerEvents="box-none" style={styles.floatingLayer}>
-      <Pressable
-        accessibilityLabel="Kembali"
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/(tabs)' as any))}
-        style={({ pressed }) => [styles.floatingBack, { backgroundColor: color, opacity: pressed ? 0.78 : 1 }]}
-        hitSlop={8}
-      >
-        <Ionicons name="arrow-back" size={22} color="#FFF" />
-      </Pressable>
-    </View>
-  );
-}
 
 export const unstable_settings = {
   initialRouteName: '(tabs)',
@@ -189,16 +171,8 @@ export default function RootLayout() {
         <Stack.Screen name="kfm/index" />
         <Stack.Screen name="infaq/index" />
       </Stack>
-      <FloatingBackButton
-        visible={Boolean(segments[0] && segments[0] !== '(tabs)' && segments[0] !== '(auth)' && segments[0] !== 'onboarding')}
-        color={colors.primary}
-      />
       <AlertHost />
     </>
   );
 }
 
-const styles = StyleSheet.create({
-  floatingLayer: { position: 'absolute', left: 0, right: 0, bottom: 26, alignItems: 'flex-start', paddingLeft: 18, zIndex: 100 },
-  floatingBack: { width: 50, height: 50, borderRadius: 25, alignItems: 'center', justifyContent: 'center', boxShadow: '0px 5px 14px rgba(0,0,0,0.22)', elevation: 8 },
-});

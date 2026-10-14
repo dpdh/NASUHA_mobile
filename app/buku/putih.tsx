@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import { memo, useMemo, useRef } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 
 // Buku bawaan; buku lain dikelola admin (CMS Buku) dan dikirim lewat parameter `url`.
@@ -87,6 +88,7 @@ function handleBookNavigationStateChange(navigation: { url: string }, webView: W
 
 function WhiteBookScreen() {
   const webViewRef = useRef<WebView>(null);
+  const insets = useSafeAreaInsets();
   const params = useLocalSearchParams<{ url?: string; title?: string }>();
   const bookUrl = typeof params.url === 'string' && /^https:\/\//.test(params.url) ? params.url : DEFAULT_FLIPBOOK_URL;
   const bookTitle = typeof params.title === 'string' && params.title ? params.title : 'Buku Putih';
@@ -120,16 +122,19 @@ function WhiteBookScreen() {
         startInLoadingState={false}
         setSupportMultipleWindows={false}
       />
-      <Pressable onPress={() => router.back()} style={styles.closeButton} hitSlop={10} accessibilityLabel="Keluar dari Buku Putih">
-        <Ionicons name="close" size={20} color="#123B59" />
-        <Text style={styles.closeButtonText}>Keluar</Text>
-      </Pressable>
-      <Pressable onPress={() => router.replace('/(tabs)' as any)} style={styles.homeButton} hitSlop={10} accessibilityLabel="Kembali ke menu utama">
-        <Ionicons name="home" size={20} color="#FFFFFF" />
-        <Text style={styles.homeButtonText}>Menu utama</Text>
-      </Pressable>
-      <LinearGradient colors={['#A9E2F5', '#6DBBDD', '#3D91C3']} style={styles.bottomFrame}>
+      <LinearGradient colors={['#A9E2F5', '#6DBBDD', '#3D91C3']} style={[styles.bottomFrame, { paddingBottom: 12 + insets.bottom }]}>
         <View style={styles.goldLine} />
+        {/* Tombol di bingkai bawah (bukan melayang) agar tidak menutupi toolbar flipbook. */}
+        <View style={styles.actionRow}>
+          <Pressable onPress={() => router.back()} style={styles.closeButton} hitSlop={10} accessibilityLabel={`Keluar dari ${bookTitle}`}>
+            <Ionicons name="close" size={20} color="#123B59" />
+            <Text style={styles.closeButtonText}>Keluar</Text>
+          </Pressable>
+          <Pressable onPress={() => router.replace('/(tabs)' as any)} style={styles.homeButton} hitSlop={10} accessibilityLabel="Kembali ke menu utama">
+            <Ionicons name="home" size={20} color="#FFFFFF" />
+            <Text style={styles.homeButtonText}>Menu utama</Text>
+          </Pressable>
+        </View>
         <Text style={styles.bottomTitle}>Ayo jadi Manusia Pembelajar</Text>
         <Text style={styles.bottomSubtitle}>Baca, pahami, dan tumbuh bersama NASUHA</Text>
       </LinearGradient>
@@ -179,10 +184,8 @@ const styles = StyleSheet.create({
   goldLine: { position: 'absolute', top: 0, left: '18%', right: '18%', height: 2, backgroundColor: '#F8D77A', shadowColor: '#FFD65A', shadowOpacity: 0.95, shadowRadius: 8, elevation: 5 },
   bottomTitle: { color: '#073A5C', fontSize: 20, fontWeight: '900', textAlign: 'center', textShadowColor: 'rgba(255,220,117,0.65)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 8 },
   bottomSubtitle: { color: '#185A7C', fontSize: 11, fontWeight: '700', marginTop: 3, letterSpacing: 0.3 },
+  actionRow: { alignSelf: 'stretch', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
   closeButton: {
-    position: 'absolute',
-    left: 18,
-    bottom: 98,
     height: 42,
     paddingHorizontal: 14,
     borderRadius: 21,
@@ -193,13 +196,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.52)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.85)',
-    zIndex: 5,
   },
   closeButtonText: { color: '#123B59', fontSize: 13, fontWeight: '800' },
   homeButton: {
-    position: 'absolute',
-    right: 18,
-    bottom: 98,
     height: 46,
     paddingHorizontal: 16,
     borderRadius: 23,
@@ -215,7 +214,6 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     shadowOffset: { width: 0, height: 5 },
     elevation: 8,
-    zIndex: 5,
   },
   homeButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' },
 });
